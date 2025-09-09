@@ -19,6 +19,7 @@ type Config struct {
 	MaxDocuments        int             `json:"maxDocuments"`
 	DarkMode            bool            `json:"darkMode"`
 	SelectedCollections map[string]bool `json:"selectedCollections"`
+	DefaultSystemPrompt string          `json:"defaultSystemPrompt"`
 }
 
 // DefaultConfig returns a configuration with sensible defaults
@@ -33,6 +34,7 @@ func DefaultConfig() *Config {
 		MaxDocuments:        5,
 		DarkMode:            false,
 		SelectedCollections: make(map[string]bool),
+		DefaultSystemPrompt: "You are a helpful Q&A bot. Your purpose is to provide direct, accurate answers to user questions. When providing lists of items (such as countries, capitals, features, etc.), format your response using proper numbered or bulleted lists. Be consistent in your formatting. If you don't know the answer, state that you are unable to provide a response.",
 	}
 }
 
@@ -92,7 +94,23 @@ func Load() (*Config, error) {
 		return nil, fmt.Errorf("failed to parse config file: %w", err)
 	}
 
+	// Apply default values for any missing fields (needed for backward compatibility)
+	applyDefaultsIfMissing(&config)
+
 	return &config, nil
+}
+
+// applyDefaultsIfMissing sets default values for any config fields that might be missing
+// This ensures backward compatibility when new fields are added
+func applyDefaultsIfMissing(c *Config) {
+	defaultConfig := DefaultConfig()
+
+	// Check for empty DefaultSystemPrompt and apply default if needed
+	if c.DefaultSystemPrompt == "" {
+		c.DefaultSystemPrompt = defaultConfig.DefaultSystemPrompt
+	}
+
+	// Add checks for any future fields here
 }
 
 // Save writes the configuration to the settings file

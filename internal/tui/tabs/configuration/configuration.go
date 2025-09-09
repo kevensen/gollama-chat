@@ -2,17 +2,21 @@ package configuration
 
 import (
 	"fmt"
-	"net/http"
+	"maps"
 	"strconv"
 	"strings"
-	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
 	"github.com/kevensen/gollama-chat/internal/configuration"
 	"github.com/kevensen/gollama-chat/internal/tui/tabs/configuration/models"
+	"github.com/kevensen/gollama-chat/internal/tui/tabs/configuration/utils/connection"
+	ragTab "github.com/kevensen/gollama-chat/internal/tui/tabs/rag"
 )
+
+// ConfigUpdatedMsg is sent when the configuration has been updated and saved
+type ConfigUpdatedMsg = ragTab.ConfigUpdatedMsg
 
 // Field represents a configuration field being edited
 type Field int
@@ -20,6 +24,7 @@ type Field int
 const (
 	ChatModelField Field = iota
 	EmbeddingModelField
+	DefaultSystemPromptField
 	RAGEnabledField
 	OllamaURLField
 	ChromaDBURLField
@@ -27,23 +32,6 @@ const (
 	MaxDocumentsField
 	DarkModeField
 )
-
-// ConnectionStatus represents the status of a server connection
-type ConnectionStatus int
-
-const (
-	StatusUnknown ConnectionStatus = iota
-	StatusConnected
-	StatusDisconnected
-	StatusChecking
-)
-
-// ConnectionCheckMsg represents the result of a connection check
-type ConnectionCheckMsg struct {
-	Server string
-	Status ConnectionStatus
-	Error  error
-}
 
 // Model represents the configuration tab model
 type Model struct {
@@ -57,8 +45,8 @@ type Model struct {
 	height         int
 	message        string
 	messageStyle   lipgloss.Style
-	ollamaStatus   ConnectionStatus
-	chromaDBStatus ConnectionStatus
+	ollamaStatus   connection.Status
+	chromaDBStatus connection.Status
 	modelPanel     models.Model
 	showModelPanel bool
 }
@@ -76,20 +64,19 @@ func NewModel(config *configuration.Config) Model {
 		MaxDocuments:        config.MaxDocuments,
 		DarkMode:            config.DarkMode,
 		SelectedCollections: make(map[string]bool),
+		DefaultSystemPrompt: config.DefaultSystemPrompt,
 	}
 
 	// Copy the selectedCollections map
-	for k, v := range config.SelectedCollections {
-		editConfig.SelectedCollections[k] = v
-	}
+	maps.Copy(editConfig.SelectedCollections, config.SelectedCollections)
 
 	return Model{
 		config:         config,
 		editConfig:     editConfig,
 		activeField:    OllamaURLField,
 		editing:        false,
-		ollamaStatus:   StatusUnknown,
-		chromaDBStatus: StatusUnknown,
+		ollamaStatus:   connection.StatusUnknown,
+		chromaDBStatus: connection.StatusUnknown,
 		modelPanel:     models.NewModel(),
 		showModelPanel: false,
 		messageStyle: lipgloss.NewStyle().
@@ -98,72 +85,12 @@ func NewModel(config *configuration.Config) Model {
 	}
 }
 
-// checkOllamaConnection checks if the Ollama server is reachable
-func checkOllamaConnection(url string) tea.Cmd {
-	return tea.Cmd(func() tea.Msg {
-		client := &http.Client{Timeout: 5 * time.Second}
-		resp, err := client.Get(url + "/api/tags")
-		if err != nil {
-			return ConnectionCheckMsg{
-				Server: "ollama",
-				Status: StatusDisconnected,
-				Error:  err,
-			}
-		}
-		defer resp.Body.Close()
-
-		if resp.StatusCode == http.StatusOK {
-			return ConnectionCheckMsg{
-				Server: "ollama",
-				Status: StatusConnected,
-				Error:  nil,
-			}
-		}
-
-		return ConnectionCheckMsg{
-			Server: "ollama",
-			Status: StatusDisconnected,
-			Error:  fmt.Errorf("HTTP %d", resp.StatusCode),
-		}
-	})
-}
-
-// checkChromaDBConnection checks if the ChromaDB server is reachable
-func checkChromaDBConnection(url string) tea.Cmd {
-	return tea.Cmd(func() tea.Msg {
-		client := &http.Client{Timeout: 5 * time.Second}
-		resp, err := client.Get(url + "/api/v2")
-		if err != nil {
-			return ConnectionCheckMsg{
-				Server: "chromadb",
-				Status: StatusDisconnected,
-				Error:  err,
-			}
-		}
-		defer resp.Body.Close()
-
-		if resp.StatusCode == http.StatusOK {
-			return ConnectionCheckMsg{
-				Server: "chromadb",
-				Status: StatusConnected,
-				Error:  nil,
-			}
-		}
-
-		return ConnectionCheckMsg{
-			Server: "chromadb",
-			Status: StatusDisconnected,
-			Error:  fmt.Errorf("HTTP %d", resp.StatusCode),
-		}
-	})
-}
-
 // Init initializes the configuration model
 func (m Model) Init() tea.Cmd {
 	// Start checking connections when the model initializes
 	return tea.Batch(
-		checkOllamaConnection(m.editConfig.OllamaURL),
-		checkChromaDBConnection(m.editConfig.ChromaDBURL),
+		connection.OllamaStatus(m.editConfig.OllamaURL),
+		connection.ChromaDBStatus(m.editConfig.ChromaDBURL),
 	)
 }
 
@@ -178,7 +105,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		panelHeight := m.height - 10 // Leave room for other UI elements
 		m.modelPanel = m.modelPanel.SetSize(panelWidth, panelHeight)
 
-	case ConnectionCheckMsg:
+	case connection.CheckMsg:
 		switch msg.Server {
 		case "ollama":
 			m.ollamaStatus = msg.Status
@@ -200,8 +127,17 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.editConfig.EmbeddingModel = msg.ModelName
 		}
 		m.showModelPanel = false
-		m.message = fmt.Sprintf("Selected: %s", msg.ModelName)
-		m.messageStyle = m.messageStyle.Foreground(lipgloss.Color("10"))
+
+		// Auto-save the configuration after model selection
+		if saveErr, updateCmd := m.autoSaveConfiguration(); saveErr != nil {
+			m.message = fmt.Sprintf("Selected: %s (save failed: %s)", msg.ModelName, saveErr.Error())
+			m.messageStyle = m.messageStyle.Foreground(lipgloss.Color("11")) // Yellow for warning
+			return m, nil
+		} else {
+			m.message = fmt.Sprintf("Selected and saved: %s", msg.ModelName)
+			m.messageStyle = m.messageStyle.Foreground(lipgloss.Color("10"))
+			return m, updateCmd
+		}
 
 	case tea.KeyMsg:
 		if m.editing {
@@ -238,14 +174,14 @@ func (m Model) handleNavigationKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 
 	case "down", "j":
-		if m.activeField < DarkModeField { // Updated to use last field
+		if m.activeField < DarkModeField { // Updated to use actual last field
 			m.activeField++
 		}
 
 	case "enter", " ":
 		// Check if we should show model selection panel
 		if m.activeField == ChatModelField || m.activeField == EmbeddingModelField {
-			if m.ollamaStatus == StatusConnected {
+			if m.ollamaStatus == connection.StatusConnected {
 				var mode models.SelectionMode
 				if m.activeField == ChatModelField {
 					mode = models.ChatModelSelection
@@ -276,8 +212,17 @@ func (m Model) handleNavigationKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "r", "R":
 		// Reset to defaults
 		m.editConfig = configuration.DefaultConfig()
-		m.message = "Configuration reset to defaults"
-		m.messageStyle = m.messageStyle.Foreground(lipgloss.Color("11"))
+
+		// Auto-save the default configuration
+		if saveErr, updateCmd := m.autoSaveConfiguration(); saveErr != nil {
+			m.message = fmt.Sprintf("Configuration reset to defaults (save failed: %s)", saveErr.Error())
+			m.messageStyle = m.messageStyle.Foreground(lipgloss.Color("11")) // Yellow for warning
+			return m, nil
+		} else {
+			m.message = "Configuration reset to defaults and saved"
+			m.messageStyle = m.messageStyle.Foreground(lipgloss.Color("11"))
+			return m, updateCmd
+		}
 	}
 
 	return m, nil
@@ -292,22 +237,42 @@ func (m Model) handleEditingKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.message = fmt.Sprintf("Error: %s", err.Error())
 			m.messageStyle = m.messageStyle.Foreground(lipgloss.Color("9"))
 		} else {
-			m.message = "Field updated"
-			m.messageStyle = m.messageStyle.Foreground(lipgloss.Color("10"))
+			// Auto-save the configuration after successful field update
+			saveErr, updateCmd := m.autoSaveConfiguration()
+			if saveErr != nil {
+				m.message = fmt.Sprintf("Field updated but save failed: %s", saveErr.Error())
+				m.messageStyle = m.messageStyle.Foreground(lipgloss.Color("11")) // Yellow for warning
+				m.editing = false
+				return m, nil
+			} else {
+				m.message = "Field updated and saved"
+				m.messageStyle = m.messageStyle.Foreground(lipgloss.Color("10"))
+			}
 
 			// Check if we need to re-test connections
 			var cmd tea.Cmd
-			if m.activeField == OllamaURLField {
-				m.ollamaStatus = StatusChecking
-				cmd = checkOllamaConnection(m.editConfig.OllamaURL)
-			} else if m.activeField == ChromaDBURLField {
-				m.chromaDBStatus = StatusChecking
-				cmd = checkChromaDBConnection(m.editConfig.ChromaDBURL)
+			var cmds []tea.Cmd
+
+			// Add the config update command
+			cmds = append(cmds, updateCmd)
+
+			switch m.activeField {
+			case OllamaURLField:
+				m.ollamaStatus = connection.StatusChecking
+				cmd = connection.OllamaStatus(m.editConfig.OllamaURL)
+			case ChromaDBURLField:
+				m.chromaDBStatus = connection.StatusChecking
+				cmd = connection.ChromaDBStatus(m.editConfig.ChromaDBURL)
+			}
+
+			// Add the connection check command if there is one
+			if cmd != nil {
+				cmds = append(cmds, cmd)
 			}
 
 			m.editing = false
 			m.input = ""
-			return m, cmd
+			return m, tea.Batch(cmds...)
 		}
 		m.editing = false
 		m.input = ""
@@ -399,10 +364,6 @@ func (m Model) renderConfigurationViewWithWidth(width int) string {
 	content = append(content, titleStyle.Render("Configuration Settings"))
 	content = append(content, "")
 
-	// Connection status
-	content = append(content, m.renderConnectionStatus())
-	content = append(content, "")
-
 	// Configuration fields
 	fields := []struct {
 		field Field
@@ -412,6 +373,7 @@ func (m Model) renderConfigurationViewWithWidth(width int) string {
 	}{
 		{ChatModelField, "Chat Model", m.editConfig.ChatModel, "Model used for chat conversations (Enter: Select from list)"},
 		{EmbeddingModelField, "Embedding Model", m.editConfig.EmbeddingModel, "Model for embeddings (Enter: Select from list)"},
+		{DefaultSystemPromptField, "Default System Prompt", m.editConfig.DefaultSystemPrompt, "System prompt sent with each message"},
 		{RAGEnabledField, "RAG Enabled", fmt.Sprintf("%t", m.editConfig.RAGEnabled), "Enable Retrieval Augmented Generation"},
 		{OllamaURLField, "Ollama URL", m.editConfig.OllamaURL, "URL of the Ollama server"},
 		{ChromaDBURLField, "ChromaDB URL", m.editConfig.ChromaDBURL, "URL of the ChromaDB server"},
@@ -436,7 +398,7 @@ func (m Model) renderConfigurationViewWithWidth(width int) string {
 	} else if m.showModelPanel {
 		content = append(content, helpStyle.Render("Model Selection: ↑/↓: Navigate • Enter: Select • Esc: Cancel"))
 	} else {
-		content = append(content, helpStyle.Render("↑/↓: Navigate • Enter: Edit/Select • S: Save • R: Reset to defaults"))
+		content = append(content, helpStyle.Render("↑/↓: Navigate • Enter: Edit/Select (auto-saves) • S: Save • R: Reset to defaults"))
 	}
 
 	// Message
@@ -490,8 +452,22 @@ func (m Model) renderField(field Field, label, value, help string) string {
 		}
 	}
 
-	// Format the field
-	fieldLine := fmt.Sprintf("%s: %s", labelStyle.Render(label), valueStyle.Render(displayValue))
+	// Add connectivity status for URL fields
+	var statusIndicator string
+	switch field {
+	case OllamaURLField:
+		statusIndicator = m.formatInlineConnectionStatus(m.ollamaStatus)
+	case ChromaDBURLField:
+		statusIndicator = m.formatInlineConnectionStatus(m.chromaDBStatus)
+	}
+
+	// Format the field with status indicator if applicable
+	var fieldLine string
+	if statusIndicator != "" {
+		fieldLine = fmt.Sprintf("%s: %s %s", labelStyle.Render(label), valueStyle.Render(displayValue), statusIndicator)
+	} else {
+		fieldLine = fmt.Sprintf("%s: %s", labelStyle.Render(label), valueStyle.Render(displayValue))
+	}
 
 	if isActive {
 		helpStyle := lipgloss.NewStyle().
@@ -503,52 +479,27 @@ func (m Model) renderField(field Field, label, value, help string) string {
 	return fieldLine
 }
 
-// renderConnectionStatus renders the connection status for Ollama and ChromaDB
-func (m Model) renderConnectionStatus() string {
-	var statusLines []string
-
-	// Ollama status
-	ollamaStatusText := m.formatConnectionStatus("Ollama", m.ollamaStatus)
-	statusLines = append(statusLines, ollamaStatusText)
-
-	// ChromaDB status
-	chromaDBStatusText := m.formatConnectionStatus("ChromaDB", m.chromaDBStatus)
-	statusLines = append(statusLines, chromaDBStatusText)
-
-	// Style the status section
-	statusStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("7")).
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(lipgloss.Color("240")).
-		Padding(0, 1).
-		Width(m.width - 4)
-
-	return statusStyle.Render(strings.Join(statusLines, "\n"))
-}
-
-// formatConnectionStatus formats a single connection status line
-func (m Model) formatConnectionStatus(serverName string, status ConnectionStatus) string {
+// formatInlineConnectionStatus formats a connection status for inline display
+func (m Model) formatInlineConnectionStatus(status connection.Status) string {
 	var statusText, statusColor string
 
 	switch status {
-	case StatusConnected:
-		statusText = "✓ Connected"
+	case connection.StatusConnected:
+		statusText = "✓"
 		statusColor = "10" // Green
-	case StatusDisconnected:
-		statusText = "✗ Disconnected"
+	case connection.StatusDisconnected:
+		statusText = "✗"
 		statusColor = "9" // Red
-	case StatusChecking:
-		statusText = "⟳ Checking..."
+	case connection.StatusChecking:
+		statusText = "⟳"
 		statusColor = "11" // Yellow
 	default:
-		statusText = "? Unknown"
+		statusText = "?"
 		statusColor = "240" // Gray
 	}
 
-	nameStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("15")).Bold(true)
 	statusStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(statusColor))
-
-	return fmt.Sprintf("%s: %s", nameStyle.Render(serverName), statusStyle.Render(statusText))
+	return statusStyle.Render(statusText)
 }
 
 // getCurrentFieldValue gets the current value of the active field
@@ -570,6 +521,8 @@ func (m Model) getCurrentFieldValue() string {
 		return fmt.Sprintf("%d", m.editConfig.MaxDocuments)
 	case DarkModeField:
 		return fmt.Sprintf("%t", m.editConfig.DarkMode)
+	case DefaultSystemPromptField:
+		return m.editConfig.DefaultSystemPrompt
 	default:
 		return ""
 	}
@@ -635,6 +588,10 @@ func (m Model) setCurrentFieldValue(value string) error {
 			return fmt.Errorf("Dark mode must be true or false")
 		}
 		m.editConfig.DarkMode = darkMode
+
+	case DefaultSystemPromptField:
+		// Allow empty system prompt, but trim whitespace
+		m.editConfig.DefaultSystemPrompt = strings.TrimSpace(value)
 	}
 
 	return nil
@@ -660,5 +617,32 @@ func (m Model) saveConfiguration() (tea.Model, tea.Cmd) {
 	m.message = "Configuration saved successfully!"
 	m.messageStyle = m.messageStyle.Foreground(lipgloss.Color("10"))
 
-	return m, nil
+	// Send configuration update message to notify other tabs
+	configUpdateCmd := func() tea.Msg {
+		return ConfigUpdatedMsg{Config: m.config}
+	}
+
+	return m, configUpdateCmd
+}
+
+// autoSaveConfiguration automatically saves the configuration to disk after validation
+// Returns an error if save fails, nil if successful, and a command to send the config update message
+func (m *Model) autoSaveConfiguration() (error, tea.Cmd) {
+	if err := m.editConfig.Validate(); err != nil {
+		return err, nil
+	}
+
+	if err := m.editConfig.Save(); err != nil {
+		return err, nil
+	}
+
+	// Update the main config
+	*m.config = *m.editConfig
+
+	// Create command to send configuration update message
+	configUpdateCmd := func() tea.Msg {
+		return ConfigUpdatedMsg{Config: m.config}
+	}
+
+	return nil, configUpdateCmd
 }

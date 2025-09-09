@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"os"
@@ -12,6 +13,7 @@ import (
 )
 
 func main() {
+	ctx := context.Background()
 	// Load configuration
 	config, err := configuration.Load()
 	if err != nil {
@@ -19,7 +21,7 @@ func main() {
 	}
 
 	// Create TUI model
-	model := tui.NewModel(config)
+	model := tui.NewModel(ctx, config)
 
 	// Create Bubble Tea program
 	program := tea.NewProgram(

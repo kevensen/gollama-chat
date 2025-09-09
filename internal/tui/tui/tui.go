@@ -1,12 +1,16 @@
 package tui
 
 import (
+	"context"
+
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
 	"github.com/kevensen/gollama-chat/internal/configuration"
 	"github.com/kevensen/gollama-chat/internal/tui/tabs/chat"
 	configTab "github.com/kevensen/gollama-chat/internal/tui/tabs/configuration"
+	"github.com/kevensen/gollama-chat/internal/tui/tabs/configuration/utils/connection"
+	ragTab "github.com/kevensen/gollama-chat/internal/tui/tabs/rag"
 )
 
 // Tab represents the different tabs in the application
@@ -15,6 +19,7 @@ type Tab int
 const (
 	ChatTab Tab = iota
 	ConfigTab
+	RAGTab
 )
 
 // Model represents the main TUI model
@@ -24,18 +29,20 @@ type Model struct {
 	tabs        []string
 	chatModel   chat.Model
 	configModel configTab.Model
+	ragModel    ragTab.Model
 	width       int
 	height      int
 }
 
 // NewModel creates a new TUI model
-func NewModel(config *configuration.Config) Model {
+func NewModel(ctx context.Context, config *configuration.Config) Model {
 	return Model{
 		config:      config,
 		activeTab:   ChatTab,
-		tabs:        []string{"Chat", "Settings"},
-		chatModel:   chat.NewModel(config),
+		tabs:        []string{"Chat", "Settings", "RAG Collections"},
+		chatModel:   chat.NewModel(ctx, config),
 		configModel: configTab.NewModel(config),
+		ragModel:    ragTab.NewModel(ctx, config),
 	}
 }
 
@@ -44,6 +51,7 @@ func (m Model) Init() tea.Cmd {
 	return tea.Batch(
 		m.chatModel.Init(),
 		m.configModel.Init(),
+		m.ragModel.Init(),
 	)
 }
 
@@ -77,16 +85,55 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			cmds = append(cmds, configCmd)
 		}
 
+		ragModel, ragCmd := m.ragModel.Update(tea.WindowSizeMsg{
+			Width:  m.width,
+			Height: m.height,
+		})
+		m.ragModel = ragModel.(ragTab.Model)
+		if ragCmd != nil {
+			cmds = append(cmds, ragCmd)
+		}
+
 	case tea.KeyMsg:
 		switch msg.String() {
 		case "ctrl+c", "q":
 			return m, tea.Quit
 		case "tab":
 			// Switch tabs
+			oldTab := m.activeTab
 			m.activeTab = (m.activeTab + 1) % Tab(len(m.tabs))
+			// Trigger initialization when switching to RAG tab
+			if oldTab != RAGTab && m.activeTab == RAGTab {
+				// Test connection when entering RAG tab
+				ragModel, ragCmd := m.ragModel.Update(tea.WindowSizeMsg{Width: m.width, Height: m.height})
+				m.ragModel = ragModel.(ragTab.Model)
+				initCmd := m.ragModel.Init()
+				if ragCmd != nil && initCmd != nil {
+					cmd = tea.Batch(ragCmd, initCmd)
+				} else if ragCmd != nil {
+					cmd = ragCmd
+				} else if initCmd != nil {
+					cmd = initCmd
+				}
+			}
 		case "shift+tab":
 			// Switch tabs in reverse
+			oldTab := m.activeTab
 			m.activeTab = (m.activeTab - 1 + Tab(len(m.tabs))) % Tab(len(m.tabs))
+			// Trigger initialization when switching to RAG tab
+			if oldTab != RAGTab && m.activeTab == RAGTab {
+				// Test connection when entering RAG tab
+				ragModel, ragCmd := m.ragModel.Update(tea.WindowSizeMsg{Width: m.width, Height: m.height})
+				m.ragModel = ragModel.(ragTab.Model)
+				initCmd := m.ragModel.Init()
+				if ragCmd != nil && initCmd != nil {
+					cmd = tea.Batch(ragCmd, initCmd)
+				} else if ragCmd != nil {
+					cmd = ragCmd
+				} else if initCmd != nil {
+					cmd = initCmd
+				}
+			}
 		default:
 			// Forward key messages to the active tab
 			switch m.activeTab {
@@ -98,12 +145,25 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				configModel, configCmd := m.configModel.Update(msg)
 				m.configModel = configModel.(configTab.Model)
 				cmd = configCmd
+			case RAGTab:
+				ragModel, ragCmd := m.ragModel.Update(msg)
+				m.ragModel = ragModel.(ragTab.Model)
+				cmd = ragCmd
 			}
 		}
 
 	default:
-		// Check if this is a ConnectionCheckMsg and route it to config tab
-		if _, isConnectionMsg := msg.(configTab.ConnectionCheckMsg); isConnectionMsg {
+		// Handle configuration updates
+		if configMsg, isConfigUpdate := msg.(ragTab.ConfigUpdatedMsg); isConfigUpdate {
+			// Update the main config
+			m.config = configMsg.Config
+
+			// Update the RAG model with the new configuration
+			ragModel, ragCmd := m.ragModel.Update(configMsg)
+			m.ragModel = ragModel.(ragTab.Model)
+			cmd = ragCmd
+		} else if _, isConnectionMsg := msg.(connection.CheckMsg); isConnectionMsg {
+			// Check if this is a ConnectionCheckMsg and route it to config tab
 			configModel, configCmd := m.configModel.Update(msg)
 			m.configModel = configModel.(configTab.Model)
 			cmd = configCmd
@@ -118,6 +178,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				configModel, configCmd := m.configModel.Update(msg)
 				m.configModel = configModel.(configTab.Model)
 				cmd = configCmd
+			case RAGTab:
+				ragModel, ragCmd := m.ragModel.Update(msg)
+				m.ragModel = ragModel.(ragTab.Model)
+				cmd = ragCmd
 			}
 		}
 	}
@@ -141,6 +205,8 @@ func (m Model) View() string {
 		content = m.chatModel.View()
 	case ConfigTab:
 		content = m.configModel.View()
+	case RAGTab:
+		content = m.ragModel.View()
 	}
 
 	// Footer with help
@@ -206,9 +272,9 @@ func (m Model) renderFooter() string {
 	// Add tab-specific help
 	switch m.activeTab {
 	case ChatTab:
-		helpText += " • Enter: Send message • Ctrl+L: Clear chat"
+		helpText += " • Enter: Send • ↑/↓: Scroll line • PgUp/PgDn: Scroll page • Ctrl+L: Clear Chat • Ctrl+S: Toggle System Prompt"
 	case ConfigTab:
-		helpText += " • Enter: Save settings • Esc: Cancel"
+		helpText += " • Enter: Edit & auto-save • Esc: Cancel"
 	}
 
 	return footerStyle.Render(helpText)

@@ -1,11 +1,8 @@
 package chat
 
 import (
-	"bytes"
-	"encoding/json"
+	"context"
 	"fmt"
-	"io"
-	"net/http"
 	"strings"
 	"time"
 
@@ -13,6 +10,8 @@ import (
 	"github.com/charmbracelet/lipgloss"
 
 	"github.com/kevensen/gollama-chat/internal/configuration"
+	"github.com/kevensen/gollama-chat/internal/rag"
+	"github.com/kevensen/gollama-chat/internal/tui/tabs/chat/input"
 )
 
 // Message represents a chat message
@@ -22,39 +21,88 @@ type Message struct {
 	Time    time.Time `json:"time"`
 }
 
-// OllamaRequest represents the request structure for Ollama API
-type OllamaRequest struct {
-	Model  string `json:"model"`
-	Prompt string `json:"prompt"`
-	Stream bool   `json:"stream"`
-}
-
-// OllamaResponse represents the response from Ollama API
-type OllamaResponse struct {
-	Response string `json:"response"`
-	Done     bool   `json:"done"`
-}
-
 // Model represents the chat tab model
 type Model struct {
-	config       *configuration.Config
-	messages     []Message
-	input        string
-	cursor       int
-	loading      bool
-	width        int
-	height       int
-	scrollOffset int
+	config           *configuration.Config
+	messages         []Message
+	width            int
+	height           int
+	scrollOffset     int
+	ragService       *rag.Service
+	ctx              context.Context
+	tokenCount       int  // Estimated token count for current conversation
+	showSystemPrompt bool // Whether to show the system prompt
+
+	// Optimized components
+	inputModel   *input.Model
+	messageCache *MessageCache
+	styles       Styles
+
+	// View caching
+	cachedMessagesView      string
+	cachedStatusView        string
+	cachedSystemPromptView  string
+	messagesNeedsUpdate     bool
+	statusNeedsUpdate       bool
+	systemPromptNeedsUpdate bool
+}
+
+// modelContextSizes maps model names to their approximate context window sizes
+var modelContextSizes = map[string]int{
+	"llama3.1":        8192,
+	"llama3.1-8b":     8192,
+	"llama3.1-70b":    8192,
+	"llama3.2":        32768,
+	"llama3.2-1b":     32768,
+	"llama3.2-3b":     32768,
+	"llama3.2-11b":    32768,
+	"llama3.2-76b":    32768,
+	"llama3.3":        128000,
+	"llama3.3:latest": 128000,
+	"llama3.3-8b":     128000,
+	"llama3.3-70b":    128000,
+	"llama3":          4096,
+	"llama2":          4096,
+	"mistral":         8192,
+	"mistral-7b":      8192,
+	"mistral-8x7b":    32768,
+	"mixtral-8x7b":    32768,
+	"codegemma":       32768,
+	"gemma":           8192,
+	"phi3":            4096,
+	"neural-chat":     8192,
+	"codellama":       16384,
+	"llava":           4096,
+	"vicuna":          4096,
+	"orca-mini":       4096,
+	"stable-lm":       4096,
+	"mpt":             8192,
+	"dolphin-phi":     4096,
 }
 
 // NewModel creates a new chat model
-func NewModel(config *configuration.Config) Model {
+func NewModel(ctx context.Context, config *configuration.Config) Model {
+	// Initialize RAG service
+	ragService := rag.NewService(config)
+
+	// Initialize input component
+	inputModel := input.NewModel()
+
+	// Create message cache
+	messageCache := NewMessageCache()
+
 	return Model{
-		config:   config,
-		messages: []Message{},
-		input:    "",
-		cursor:   0,
-		loading:  false,
+		config:                  config,
+		messages:                []Message{},
+		ragService:              ragService,
+		ctx:                     ctx,
+		inputModel:              &inputModel,
+		messageCache:            messageCache,
+		styles:                  DefaultStyles(),
+		messagesNeedsUpdate:     true,
+		statusNeedsUpdate:       true,
+		systemPromptNeedsUpdate: true,
+		showSystemPrompt:        false, // Initially hidden
 	}
 }
 
@@ -71,98 +119,173 @@ type responseMsg struct {
 
 // Init initializes the chat model
 func (m Model) Init() tea.Cmd {
+	// Initialize RAG service if it's enabled
+	if m.config.RAGEnabled {
+		return tea.Cmd(func() tea.Msg {
+			err := m.ragService.Initialize(m.ctx)
+			if err != nil {
+				// Just log the error, don't prevent the app from starting
+				return nil
+			}
+			return nil
+		})
+	}
 	return nil
 }
 
 // Update handles messages and updates the chat model
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
-	switch msg := msg.(type) {
-	case tea.WindowSizeMsg:
-		m.width = msg.Width
-		m.height = msg.Height
 
-	case tea.KeyMsg:
-		if m.loading {
-			// Don't process input while loading
+	// Handle window size changes first
+	if windowMsg, ok := msg.(tea.WindowSizeMsg); ok {
+		// Store previous dimensions to detect actual changes
+		prevWidth, prevHeight := m.width, m.height
+
+		m.width = windowMsg.Width
+		m.height = windowMsg.Height
+
+		// Update the input model size with fixed height
+		m.inputModel.SetSize(windowMsg.Width, 3)
+
+		// Only indicate views need refreshing if dimensions actually changed
+		if prevWidth != m.width || prevHeight != m.height {
+			m.messagesNeedsUpdate = true
+			m.statusNeedsUpdate = true
+
+			// Invalidate message cache as we need to recalculate message wrapping
+			m.messageCache.InvalidateCache()
+		}
+
+		return m, nil
+	}
+
+	// Handle key messages by first checking for chat-level controls, then delegating to input
+	if keyMsg, ok := msg.(tea.KeyMsg); ok {
+		// Don't process certain keys while loading
+		if m.inputModel.IsLoading() && keyMsg.String() != "ctrl+c" && keyMsg.String() != "ctrl+l" {
 			return m, nil
 		}
 
-		switch msg.String() {
+		// Handle chat-level control keys first
+		switch keyMsg.String() {
 		case "enter":
-			if strings.TrimSpace(m.input) != "" {
+			if strings.TrimSpace(m.inputModel.Value()) != "" {
 				// Add user message
 				userMsg := Message{
 					Role:    "user",
-					Content: m.input,
+					Content: m.inputModel.Value(),
 					Time:    time.Now(),
 				}
 				m.messages = append(m.messages, userMsg)
 
-				// Send message to Ollama
-				prompt := m.input
-				m.input = ""
-				m.cursor = 0
-				m.loading = true
+				// Get the prompt and reset input
+				prompt := m.inputModel.Value()
+				m.inputModel.Clear()
+				m.inputModel.SetLoading(true)
+
+				// Mark messages for update
+				m.messagesNeedsUpdate = true
+				m.messageCache.InvalidateCache()
+
+				// Update token count after adding user message
+				m.updateTokenCount()
+				m.statusNeedsUpdate = true
 
 				return m, m.sendMessage(prompt)
 			}
+
+		case "ctrl+s":
+			// Toggle system prompt display
+			m.showSystemPrompt = !m.showSystemPrompt
+			m.systemPromptNeedsUpdate = true
+			m.messagesNeedsUpdate = true // Force layout refresh
+			return m, nil
 
 		case "ctrl+l":
 			// Clear chat
 			m.messages = []Message{}
 			m.scrollOffset = 0
-
-		case "backspace":
-			if m.cursor > 0 {
-				m.input = m.input[:m.cursor-1] + m.input[m.cursor:]
-				m.cursor--
-			}
-
-		case "left":
-			if m.cursor > 0 {
-				m.cursor--
-			}
-
-		case "right":
-			if m.cursor < len(m.input) {
-				m.cursor++
-			}
-
-		case "home":
-			m.cursor = 0
-
-		case "end":
-			m.cursor = len(m.input)
+			m.messagesNeedsUpdate = true
+			m.messageCache.InvalidateCache()
+			return m, nil
 
 		case "up":
 			if m.scrollOffset > 0 {
 				m.scrollOffset--
+				m.messagesNeedsUpdate = true
 			}
+			return m, nil
 
 		case "down":
 			// Calculate max scroll
-			messagesHeight := m.calculateMessagesHeight()
-			availableHeight := m.height - 6 // Reserve space for input area
+			messagesHeight := m.messageCache.GetTotalHeight(&m)
+
+			// Get system prompt height
+			systemPromptHeight := m.getSystemPromptHeight()
+			availableHeight := m.height - 6 - systemPromptHeight // Reserve space for input area, status bar, and system prompt
+
 			if messagesHeight > availableHeight {
 				maxScroll := messagesHeight - availableHeight
 				if m.scrollOffset < maxScroll {
 					m.scrollOffset++
+					m.messagesNeedsUpdate = true
 				}
 			}
+			return m, nil
+
+		case "pgup":
+			// Page Up - scroll up by available height
+			systemPromptHeight := m.getSystemPromptHeight()
+			availableHeight := m.height - 6 - systemPromptHeight // Reserve space for input area, status bar, and system prompt
+			pageSize := availableHeight - 1                      // Leave one line for context
+			if pageSize < 1 {
+				pageSize = 1
+			}
+
+			m.scrollOffset -= pageSize
+			if m.scrollOffset < 0 {
+				m.scrollOffset = 0
+			}
+			m.messagesNeedsUpdate = true
+			return m, nil
+
+		case "pgdown":
+			// Page Down - scroll down by available height
+			systemPromptHeight := m.getSystemPromptHeight()
+			availableHeight := m.height - 6 - systemPromptHeight // Reserve space for input area, status bar, and system prompt
+			pageSize := max(
+				// Leave one line for context
+				availableHeight-1, 1)
+
+			messagesHeight := m.messageCache.GetTotalHeight(&m)
+			if messagesHeight > availableHeight {
+				maxScroll := messagesHeight - availableHeight
+				m.scrollOffset += pageSize
+				if m.scrollOffset > maxScroll {
+					m.scrollOffset = maxScroll
+				}
+				m.messagesNeedsUpdate = true
+			}
+			return m, nil
 
 		default:
-			// Add character to input
-			if len(msg.String()) == 1 {
-				m.input = m.input[:m.cursor] + msg.String() + m.input[m.cursor:]
-				m.cursor++
-			}
+			// Delegate all other key handling (including text input) to the input component
+			// Skip caching for maximum responsiveness
+			updatedInputModel, cmd := m.inputModel.Update(msg)
+			m.inputModel = &updatedInputModel
+			// Don't cache input view for text input - let it render directly
+			return m, cmd
 		}
+	}
+
+	// Handle other message types
+	switch msg := msg.(type) {
 
 	case sendMessageMsg:
 		return m, m.sendMessage(msg.message)
 
 	case responseMsg:
-		m.loading = false
+		m.inputModel.SetLoading(false)
 		if msg.err != nil {
 			// Add error message
 			errorMsg := Message{
@@ -181,7 +304,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.messages = append(m.messages, assistantMsg)
 		}
 
-		// Auto-scroll to bottom
+		// Mark messages for update but preserve layout dimensions
+		m.messagesNeedsUpdate = true
+		m.messageCache.InvalidateCache()
+
+		// Update token count
+		m.updateTokenCount()
+		m.statusNeedsUpdate = true
+
+		// Auto-scroll to bottom without changing dimensions
 		m.scrollToBottom()
 	}
 
@@ -194,179 +325,80 @@ func (m Model) View() string {
 		return "Loading..."
 	}
 
-	// Messages area
-	messagesView := m.renderMessages()
+	// Ensure consistent rendering regardless of scroll state or message count
 
-	// Input area
-	inputView := m.renderInput()
+	// Prepare the components only if they need updating
+	var messagesView, statusView, systemPromptView string
 
+	// System prompt view - only show if enabled
+	var components []string
+	if m.showSystemPrompt {
+		if m.systemPromptNeedsUpdate || m.cachedSystemPromptView == "" {
+			systemPromptView = m.renderSystemPrompt()
+			m.cachedSystemPromptView = systemPromptView
+			m.systemPromptNeedsUpdate = false
+		} else {
+			systemPromptView = m.cachedSystemPromptView
+		}
+		components = append(components, systemPromptView)
+	}
+
+	// Messages view - only recompute if needed
+	if m.messagesNeedsUpdate || m.cachedMessagesView == "" {
+		messagesView = m.messageCache.RenderAllMessages(&m)
+		m.cachedMessagesView = messagesView
+		m.messagesNeedsUpdate = false
+	} else {
+		messagesView = m.cachedMessagesView
+	}
+	components = append(components, messagesView)
+
+	// Status bar - only recompute if needed
+	if m.statusNeedsUpdate || m.cachedStatusView == "" {
+		statusView = m.renderStatusBar()
+		m.cachedStatusView = statusView
+		m.statusNeedsUpdate = false
+	} else {
+		statusView = m.cachedStatusView
+	}
+	components = append(components, statusView)
+
+	// Input view - render directly without caching for maximum responsiveness
+	inputView := m.inputModel.View()
+	components = append(components, inputView)
+
+	// Join all components vertically
 	return lipgloss.JoinVertical(
 		lipgloss.Left,
-		messagesView,
-		inputView,
+		components...,
 	)
-}
-
-// renderMessages renders the chat messages
-func (m Model) renderMessages() string {
-	if len(m.messages) == 0 {
-		emptyStyle := lipgloss.NewStyle().
-			Foreground(lipgloss.Color("240")).
-			Align(lipgloss.Center).
-			Width(m.width - 2).
-			Height(m.height - 6) // Reserve more space for input area and padding
-
-		return emptyStyle.Render("No messages yet. Type a message and press Enter to start chatting!")
-	}
-
-	var lines []string
-
-	for _, msg := range m.messages {
-		lines = append(lines, m.formatMessage(msg)...)
-	}
-
-	// Apply scroll offset
-	if m.scrollOffset > 0 && m.scrollOffset < len(lines) {
-		lines = lines[m.scrollOffset:]
-	}
-
-	// Limit to available height
-	availableHeight := m.height - 6 // Reserve more space for input area
-	if len(lines) > availableHeight {
-		lines = lines[len(lines)-availableHeight:]
-	}
-
-	messagesStyle := lipgloss.NewStyle().
-		Width(m.width - 2).
-		Height(m.height - 6). // Match the availableHeight calculation
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(lipgloss.Color("240"))
-
-	content := strings.Join(lines, "\n")
-	return messagesStyle.Render(content)
-}
-
-// formatMessage formats a single message for display
-func (m Model) formatMessage(msg Message) []string {
-	var lines []string
-
-	// Header with role and timestamp
-	timeStr := msg.Time.Format("15:04:05")
-	var headerStyle lipgloss.Style
-
-	if msg.Role == "user" {
-		headerStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("12")).
-			Bold(true)
-	} else {
-		headerStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("10")).
-			Bold(true)
-	}
-
-	header := headerStyle.Render(fmt.Sprintf("%s [%s]", strings.Title(msg.Role), timeStr))
-	lines = append(lines, header)
-
-	// Message content (wrap to fit width)
-	contentWidth := m.width - 4 // Account for border
-	wrappedContent := m.wrapText(msg.Content, contentWidth)
-	lines = append(lines, wrappedContent...)
-
-	// Add spacing
-	lines = append(lines, "")
-
-	return lines
-}
-
-// renderInput renders the input area
-func (m Model) renderInput() string {
-	inputStyle := lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(lipgloss.Color("62")).
-		Width(m.width - 2). // Reduce width to prevent wrapping
-		Height(3)
-
-	prompt := "> "
-
-	// Create input display with cursor
-	input := m.input
-	if m.cursor <= len(input) {
-		if m.cursor == len(input) {
-			input += "█" // Cursor at end
-		} else {
-			input = input[:m.cursor] + "█" + input[m.cursor+1:]
-		}
-	}
-
-	status := ""
-	if m.loading {
-		status = " [Thinking...]"
-	}
-
-	content := prompt + input + status
-
-	return inputStyle.Render(content)
-}
-
-// sendMessage sends a message to Ollama
-func (m Model) sendMessage(prompt string) tea.Cmd {
-	return tea.Cmd(func() tea.Msg {
-		req := OllamaRequest{
-			Model:  m.config.ChatModel,
-			Prompt: prompt,
-			Stream: false,
-		}
-
-		jsonData, err := json.Marshal(req)
-		if err != nil {
-			return responseMsg{err: err}
-		}
-
-		resp, err := http.Post(
-			m.config.OllamaURL+"/api/generate",
-			"application/json",
-			bytes.NewBuffer(jsonData),
-		)
-		if err != nil {
-			return responseMsg{err: err}
-		}
-		defer resp.Body.Close()
-
-		body, err := io.ReadAll(resp.Body)
-		if err != nil {
-			return responseMsg{err: err}
-		}
-
-		var ollamaResp OllamaResponse
-		if err := json.Unmarshal(body, &ollamaResp); err != nil {
-			return responseMsg{err: err}
-		}
-
-		return responseMsg{content: ollamaResp.Response}
-	})
-}
-
-// calculateMessagesHeight calculates the total height of all messages
-func (m Model) calculateMessagesHeight() int {
-	height := 0
-	for _, msg := range m.messages {
-		height += len(m.formatMessage(msg))
-	}
-	return height
 }
 
 // scrollToBottom scrolls to the bottom of the messages
 func (m Model) scrollToBottom() {
 	messagesHeight := m.calculateMessagesHeight()
-	availableHeight := m.height - 6 // Match other height calculations
+
+	// Get system prompt height
+	systemPromptHeight := m.getSystemPromptHeight()
+
+	availableHeight := m.height - 6 - systemPromptHeight // Adjust for input area, status bar and system prompt
 	if messagesHeight > availableHeight {
 		m.scrollOffset = messagesHeight - availableHeight
+	} else {
+		m.scrollOffset = 0
 	}
+	// Don't trigger resize/reflow of the overall UI when scrolling
 }
 
 // wrapText wraps text to fit within the specified width
 func (m Model) wrapText(text string, width int) []string {
+	// Early return for edge cases
 	if width <= 0 {
+		return []string{text}
+	}
+
+	// Optimization for short texts that don't need wrapping
+	if len(text) <= width {
 		return []string{text}
 	}
 
@@ -375,23 +407,62 @@ func (m Model) wrapText(text string, width int) []string {
 		return []string{""}
 	}
 
-	var lines []string
-	currentLine := ""
+	// Preallocate the result slice based on an estimate
+	estimatedLines := (len(text) / width) + 1
+	lines := make([]string, 0, estimatedLines)
+
+	// Use strings.Builder for better performance
+	var sb strings.Builder
 
 	for _, word := range words {
-		if len(currentLine) == 0 {
-			currentLine = word
-		} else if len(currentLine)+len(word)+1 <= width {
-			currentLine += " " + word
+		// Check if adding this word would exceed the width
+		if sb.Len() == 0 {
+			sb.WriteString(word)
+		} else if sb.Len()+len(word)+1 <= width {
+			sb.WriteString(" ")
+			sb.WriteString(word)
 		} else {
-			lines = append(lines, currentLine)
-			currentLine = word
+			// Line is full, append it and start a new one
+			lines = append(lines, sb.String())
+			sb.Reset()
+			sb.WriteString(word)
 		}
 	}
 
-	if len(currentLine) > 0 {
-		lines = append(lines, currentLine)
+	// Add the last line if there's anything left
+	if sb.Len() > 0 {
+		lines = append(lines, sb.String())
 	}
 
 	return lines
+}
+
+// renderStatusBar renders the status bar showing model and token information
+func (m Model) renderStatusBar() string {
+	// Use the pre-defined style from styles.go
+	statusStyle := m.styles.statusBar.Width(m.width - 2)
+
+	// Get model name
+	modelInfo := fmt.Sprintf("Model: %s", m.config.ChatModel)
+
+	// Get context window size
+	contextSize := m.getModelContextSize(m.config.ChatModel)
+	contextInfo := fmt.Sprintf("Context: %d", contextSize)
+
+	// Get token information
+	tokenInfo := fmt.Sprintf("Tokens: ~%d", m.tokenCount)
+
+	// Calculate percentage of context used
+	percentUsed := 0
+	if contextSize > 0 {
+		percentUsed = (m.tokenCount * 100) / contextSize
+		if percentUsed > 100 {
+			percentUsed = 100
+		}
+	}
+
+	// Combine information with spacing
+	status := fmt.Sprintf("%s | %s | %s (%d%%)", modelInfo, contextInfo, tokenInfo, percentUsed)
+
+	return statusStyle.Render(status)
 }

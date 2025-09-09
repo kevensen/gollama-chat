@@ -9,6 +9,7 @@ Create a text user interface (TUI) for chatting with an LLM.
 5. Eventually use https://github.com/amikos-tech/chroma-go for interaction with Chromadb servers.  This will come later.
 6. Favor idiomatic Go where possible.
 7. Create additional directories and *.go files as deemed necessary.
+8. Keep go files below 600 lines of code.
 
 # Configuration
 
@@ -21,8 +22,6 @@ Complete work items.  When work items are complete, move them from "Todo" to "Do
 
 # Work Items
 ## Todo
-15. The indicator of connectivity to Ollama should be in line with the "Ollama URL".
-16. The indicator of connectivity to the ChromaDB server should be in line with the "ChromaDB URL".
 
 ## Done
 1. ✅ Define the main TUI controller in /home/kdevensen/workspace/gollama-chat/internal/tui/tui/tui.go.
@@ -52,3 +51,24 @@ Complete work items.  When work items are complete, move them from "Todo" to "Do
 12. ✅ On the "settings" tab, provide an indication that the connection to the Ollama server is successful or unsuccessful.
 13. ✅ On the "settings" tab, provide an indication that a connection to the Chromadb server is successful or unsuccessful.  Use the `/api/v2` endpoint to make this determination.
 14. ✅ On the settings tab, when either the "Chat Model" or "Embedding Model" are selected, a bordered panel to the right lists available models as provided by the Ollama server. The user can navigate and scroll to select a desired model. If a connection to the Ollama server cannot be established, a message is displayed indicating as much.
+15. ✅ The indicator of connectivity to Ollama should be in line with the "Ollama URL".
+16. ✅ The indicator of connectivity to the ChromaDB server should be in line with the "ChromaDB URL".
+17. ✅ Persist any changes to settings to the configuration file.
+18. ✅ In the chat window, Page Up/Page Down should enable a user to scroll through chat history.
+19. ✅ Use the https://github.com/parakeet-nest/parakeet library to facilitate communication with the Ollama server.
+20. ✅ Chat history should be used in the context.
+21. ✅ Begin to implement the ChromaDB and RAG functionality.
+  a. ✅ The TUI should provide a list of collections stored in the ChromaDB, only if there is successful connection with the ChromaDB.
+  b. ✅ The https://github.com/amikos-tech/chroma-go should be used for interacting with the ChromaDB
+  c. ✅ The Bubble Tea components for the "collections" view should be defined in /home/kdevensen/workspace/gollama-chat/internal/tui/tabs/rag/rag.go
+  d. ✅ The TUI should provide a mechanism to select/deselect individual collections.
+  e. ✅ The TUI should provide a mechanism to select all/deslect all collections.
+22. ✅ Integrate RAG with the chat query.
+  a. Embeddings for the latest query should be made with the selected embedding model on the chat tab.
+  b. Retrieved documents should be added to the prompt.
+  c. A basic example can be found here https://raw.githubusercontent.com/amikos-tech/chroma-go/refs/heads/main/examples/v2/basic/main.go
+  d. I can provide an example of an Ollama embedding function if desired.
+23. ✅ Provide some indication in the "chat" tab as to what model is selected.
+24. ✅ Provide some indication to the user in the the "chat" tab as to the max tokens of the selected model.
+25. ✅ Provide some indication to the user in the chat tab as to the estimated number of tokens in the context window.
+26. ✅ Swap out parakeet for the Ollama golang client. The docs are found here: https://pkg.go.dev/github.com/ollama/ollama/api.
