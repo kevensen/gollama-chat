@@ -9,7 +9,6 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
 	"github.com/ollama/ollama/api"
 )
 
@@ -134,64 +133,6 @@ func (m Model) calculateMessagesHeight() int {
 	}
 
 	return height
-}
-
-// renderMessages renders the chat messages
-func (m Model) renderMessages() string {
-	if len(m.messages) == 0 {
-		// Get system prompt height
-		systemPromptHeight := m.getSystemPromptHeight()
-		availableHeight := m.height - 6 - systemPromptHeight // Reserve space for input area, status bar, and system prompt
-
-		emptyStyle := lipgloss.NewStyle().
-			Foreground(lipgloss.Color("240")).
-			Align(lipgloss.Center).
-			Width(m.width - 2).
-			Height(availableHeight) // Use calculated available height
-
-		return emptyStyle.Render("No messages yet. Type a message and press Enter to start chatting!")
-	}
-
-	var lines []string
-
-	for _, msg := range m.messages {
-		lines = append(lines, m.formatMessage(msg)...)
-	}
-
-	// Limit to available height first
-	systemPromptHeight := m.getSystemPromptHeight()
-	availableHeight := m.height - 6 - systemPromptHeight // Reserve space for input area, status bar, and system prompt
-
-	// Calculate the start and end indices for the visible portion
-	totalLines := len(lines)
-	if totalLines <= availableHeight {
-		// All lines fit, no scrolling needed
-		m.scrollOffset = 0
-	} else {
-		// Apply scroll offset
-		startIdx := m.scrollOffset
-		endIdx := startIdx + availableHeight
-
-		// Ensure we don't go beyond bounds
-		if endIdx > totalLines {
-			endIdx = totalLines
-			startIdx = endIdx - availableHeight
-			if startIdx < 0 {
-				startIdx = 0
-			}
-		}
-
-		lines = lines[startIdx:endIdx]
-	}
-
-	messagesStyle := lipgloss.NewStyle().
-		Width(m.width - 2).
-		Height(m.height - 6). // Match the availableHeight calculation
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(lipgloss.Color("240"))
-
-	content := strings.Join(lines, "\n")
-	return messagesStyle.Render(content)
 }
 
 // formatMessage formats a single message for display with performance optimization
