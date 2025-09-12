@@ -28,6 +28,11 @@ type ConfigUpdatedMsg struct {
 	Config *configuration.Config
 }
 
+// CollectionsUpdatedMsg is sent when collections selection has changed
+type CollectionsUpdatedMsg struct {
+	SelectedCollections []string
+}
+
 // Model represents the RAG collections tab model
 type Model struct {
 	config             *configuration.Config
@@ -153,18 +158,34 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.collectionsService.ToggleCollection(m.cursor)
 				m.collections = m.collectionsService.GetCollections()
 				m.updateViewportContent()
+				// Send message to notify about collection changes
+				return m, tea.Cmd(func() tea.Msg {
+					return CollectionsUpdatedMsg{
+						SelectedCollections: m.collectionsService.GetSelectedCollections(),
+					}
+				})
 			}
 			return m, nil
 		case "ctrl+a": // Select all
 			m.collectionsService.SelectAll()
 			m.collections = m.collectionsService.GetCollections()
 			m.updateViewportContent()
-			return m, nil
+			// Send message to notify about collection changes
+			return m, tea.Cmd(func() tea.Msg {
+				return CollectionsUpdatedMsg{
+					SelectedCollections: m.collectionsService.GetSelectedCollections(),
+				}
+			})
 		case "ctrl+d": // Deselect all
 			m.collectionsService.DeselectAll()
 			m.collections = m.collectionsService.GetCollections()
 			m.updateViewportContent()
-			return m, nil
+			// Send message to notify about collection changes
+			return m, tea.Cmd(func() tea.Msg {
+				return CollectionsUpdatedMsg{
+					SelectedCollections: m.collectionsService.GetSelectedCollections(),
+				}
+			})
 		case "r": // Refresh collections
 			if m.connected {
 				m.loading = true
@@ -199,6 +220,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.cursor >= len(m.collections) {
 				m.cursor = 0
 			}
+			// Send message to notify about collection changes (all collections are selected by default)
+			return m, tea.Cmd(func() tea.Msg {
+				return CollectionsUpdatedMsg{
+					SelectedCollections: m.collectionsService.GetSelectedCollections(),
+				}
+			})
 		}
 		m.updateViewportContent()
 	}
@@ -396,4 +423,9 @@ func (m *Model) updateViewportScroll() {
 	} else if cursorLine > bottom {
 		m.viewport.YOffset = cursorLine - m.viewport.Height + 1
 	}
+}
+
+// GetSelectedCollections returns the list of selected collection names
+func (m Model) GetSelectedCollections() []string {
+	return m.collectionsService.GetSelectedCollections()
 }

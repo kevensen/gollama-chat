@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
-	"os"
 	"strings"
 	"time"
 
@@ -25,10 +24,6 @@ func (m Model) sendMessage(prompt string) tea.Cmd {
 				fullPrompt = ragResult.FormatDocumentsForPrompt() + prompt
 			} else {
 				fullPrompt = prompt
-				// Improved error handling - log the RAG error but continue with the original prompt
-				if err != nil {
-					fmt.Fprintf(os.Stderr, "RAG query error: %v\n", err)
-				}
 			}
 		} else {
 			fullPrompt = prompt

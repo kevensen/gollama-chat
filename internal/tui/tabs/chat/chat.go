@@ -117,6 +117,11 @@ type responseMsg struct {
 	err     error
 }
 
+// ragStatusMsg is sent to update RAG status in the input
+type ragStatusMsg struct {
+	status string
+}
+
 // Init initializes the chat model
 func (m Model) Init() tea.Cmd {
 	// Initialize RAG service if it's enabled
@@ -166,8 +171,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 
-		// Handle chat-level control keys first
-		switch keyMsg.String() {
+		// Fast path for text input - delegate immediately to input component for maximum responsiveness
+		key := keyMsg.String()
+		if len(key) == 1 && key >= " " && key <= "~" {
+			updatedInputModel, cmd := m.inputModel.Update(msg)
+			m.inputModel = &updatedInputModel
+			return m, cmd
+		}
+
+		// Handle chat-level control keys
+		switch key {
 		case "enter":
 			if strings.TrimSpace(m.inputModel.Value()) != "" {
 				// Add user message
@@ -182,6 +195,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				prompt := m.inputModel.Value()
 				m.inputModel.Clear()
 				m.inputModel.SetLoading(true)
+
+				// Set initial RAG status if RAG is enabled
+				if m.config.RAGEnabled {
+					if m.ragService != nil && m.ragService.IsReady() {
+						m.inputModel.SetRAGStatus("Searching documents...")
+					} else {
+						m.inputModel.SetRAGStatus("RAG not ready")
+					}
+				}
 
 				// Mark messages for update
 				m.messagesNeedsUpdate = true
@@ -208,6 +230,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.messagesNeedsUpdate = true
 			m.messageCache.InvalidateCache()
 			return m, nil
+
+		case "backspace", "left", "right", "home", "end", "ctrl+a", "ctrl+e":
+			// Delegate cursor and deletion operations directly to input
+			updatedInputModel, cmd := m.inputModel.Update(msg)
+			m.inputModel = &updatedInputModel
+			return m, cmd
 
 		case "up":
 			if m.scrollOffset > 0 {
@@ -269,11 +297,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 
 		default:
-			// Delegate all other key handling (including text input) to the input component
-			// Skip caching for maximum responsiveness
+			// For all other keys, delegate to input component for maximum responsiveness
+			// This includes character input, special key combinations, etc.
 			updatedInputModel, cmd := m.inputModel.Update(msg)
 			m.inputModel = &updatedInputModel
-			// Don't cache input view for text input - let it render directly
 			return m, cmd
 		}
 	}
@@ -283,6 +310,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case sendMessageMsg:
 		return m, m.sendMessage(msg.message)
+
+	case ragStatusMsg:
+		// Update the input's RAG status
+		m.inputModel.SetRAGStatus(msg.status)
+		return m, nil
 
 	case responseMsg:
 		m.inputModel.SetLoading(false)
@@ -364,10 +396,11 @@ func (m Model) View() string {
 	components = append(components, statusView)
 
 	// Input view - render directly without caching for maximum responsiveness
+	// Use a simpler rendering approach to minimize latency
 	inputView := m.inputModel.View()
 	components = append(components, inputView)
 
-	// Join all components vertically
+	// Join all components vertically with minimal processing
 	return lipgloss.JoinVertical(
 		lipgloss.Left,
 		components...,
@@ -465,4 +498,9 @@ func (m Model) renderStatusBar() string {
 	status := fmt.Sprintf("%s | %s | %s (%d%%)", modelInfo, contextInfo, tokenInfo, percentUsed)
 
 	return statusStyle.Render(status)
+}
+
+// GetRAGService returns the RAG service for external access
+func (m Model) GetRAGService() *rag.Service {
+	return m.ragService
 }

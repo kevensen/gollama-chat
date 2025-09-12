@@ -23,11 +23,13 @@ func main() {
 	// Create TUI model
 	model := tui.NewModel(ctx, config)
 
-	// Create Bubble Tea program
+	// Create Bubble Tea program with performance optimizations
 	program := tea.NewProgram(
 		model,
 		tea.WithAltScreen(),
 		tea.WithMouseCellMotion(),
+		tea.WithFPS(60),    // Higher FPS for more responsive input
+		tea.WithInputTTY(), // Use TTY input for better responsiveness
 	)
 
 	// Run the program

@@ -116,6 +116,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					cmd = initCmd
 				}
 			}
+			// Sync selected collections when switching to Chat tab
+			if m.activeTab == ChatTab {
+				m.syncRAGCollections()
+			}
 		case "shift+tab":
 			// Switch tabs in reverse
 			oldTab := m.activeTab
@@ -133,6 +137,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				} else if initCmd != nil {
 					cmd = initCmd
 				}
+			}
+			// Sync selected collections when switching to Chat tab
+			if m.activeTab == ChatTab {
+				m.syncRAGCollections()
 			}
 		default:
 			// Forward key messages to the active tab
@@ -160,6 +168,23 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 			// Update the RAG model with the new configuration
 			ragModel, ragCmd := m.ragModel.Update(configMsg)
+			m.ragModel = ragModel.(ragTab.Model)
+			cmd = ragCmd
+		} else if collectionsMsg, isCollectionsUpdate := msg.(ragTab.CollectionsUpdatedMsg); isCollectionsUpdate {
+			// Handle collection selection changes
+			selectedCollectionsMap := make(map[string]bool)
+			for _, collectionName := range collectionsMsg.SelectedCollections {
+				selectedCollectionsMap[collectionName] = true
+			}
+
+			// Update the chat model's RAG service
+			ragService := m.chatModel.GetRAGService()
+			if ragService != nil {
+				ragService.UpdateSelectedCollections(selectedCollectionsMap)
+			}
+
+			// Still forward the message to the RAG tab
+			ragModel, ragCmd := m.ragModel.Update(msg)
 			m.ragModel = ragModel.(ragTab.Model)
 			cmd = ragCmd
 		} else if _, isConnectionMsg := msg.(connection.CheckMsg); isConnectionMsg {
@@ -322,4 +347,22 @@ func (m Model) renderFooter() string {
 	}
 
 	return footerStyle.Render(helpText)
+}
+
+// syncRAGCollections synchronizes the selected collections from RAG tab to the chat model's RAG service
+func (m *Model) syncRAGCollections() {
+	// Get the selected collections from the RAG tab
+	selectedCollectionNames := m.ragModel.GetSelectedCollections()
+
+	// Convert to the map format expected by UpdateSelectedCollections
+	selectedCollectionsMap := make(map[string]bool)
+	for _, collectionName := range selectedCollectionNames {
+		selectedCollectionsMap[collectionName] = true
+	}
+
+	// Update the chat model's RAG service with the selected collections
+	ragService := m.chatModel.GetRAGService()
+	if ragService != nil {
+		ragService.UpdateSelectedCollections(selectedCollectionsMap)
+	}
 }
