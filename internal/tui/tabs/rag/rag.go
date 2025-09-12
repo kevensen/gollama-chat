@@ -67,7 +67,6 @@ func (m Model) Init() tea.Cmd {
 
 // Update handles messages and updates the model
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
-	var cmd tea.Cmd
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
@@ -97,11 +96,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, m.testConnection()
 
 	case tea.KeyMsg:
-		switch msg.String() {
 		// Always allow these debug/control keys, even when loading
+		switch msg.String() {
 		case "c": // Show config (debug)
 			m.error = fmt.Sprintf("Debug: ChromaDB URL = '%s', Loading = %t", m.config.ChromaDBURL, m.loading)
 			m.updateViewportContent()
+			return m, nil
 		case "u": // Update/refresh config
 			// Reload configuration from disk
 			if newConfig, err := configuration.Load(); err == nil {
@@ -113,6 +113,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.error = fmt.Sprintf("Failed to reload config: %v", err)
 				m.updateViewportContent()
 			}
+			return m, nil
 		case "t": // Test connection
 			m.loading = true
 			m.error = ""
@@ -121,46 +122,55 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.loading = false
 			m.error = "Loading cancelled by user"
 			m.updateViewportContent()
-		default:
-			// Only block other keys when loading
-			if m.loading {
-				return m, nil
-			}
+			return m, nil
 		}
 
-		// Handle navigation and selection keys (only when not loading)
-		if !m.loading {
-			switch msg.String() {
-			case "up", "k":
-				if m.cursor > 0 {
-					m.cursor--
-					m.updateViewportScroll()
-				}
-			case "down", "j":
-				if m.cursor < len(m.collections)-1 {
-					m.cursor++
-					m.updateViewportScroll()
-				}
-			case " ", "enter": // Toggle selection
-				if len(m.collections) > 0 && m.cursor < len(m.collections) {
-					m.collectionsService.ToggleCollection(m.cursor)
-					m.collections = m.collectionsService.GetCollections()
-					m.updateViewportContent()
-				}
-			case "ctrl+a": // Select all
-				m.collectionsService.SelectAll()
-				m.collections = m.collectionsService.GetCollections()
-				m.updateViewportContent()
-			case "ctrl+d": // Deselect all
-				m.collectionsService.DeselectAll()
-				m.collections = m.collectionsService.GetCollections()
-				m.updateViewportContent()
-			case "r": // Refresh collections
-				if m.connected {
-					m.loading = true
-					return m, m.loadCollections(m.ctx)
-				}
+		// Only handle other keys when not loading
+		if m.loading {
+			return m, nil
+		}
+
+		// Handle navigation and selection keys
+		switch msg.String() {
+		case "up", "k":
+			if m.cursor > 0 {
+				m.cursor--
+				m.updateViewportScroll()
+				m.updateViewportContent()                                              // Add this to refresh the display
+				m.error = fmt.Sprintf("DEBUG: Up pressed, cursor now at %d", m.cursor) // Debug
 			}
+			return m, nil // Prevent viewport from handling this key
+		case "down", "j":
+			if m.cursor < len(m.collections)-1 {
+				m.cursor++
+				m.updateViewportScroll()
+				m.updateViewportContent()                                                // Add this to refresh the display
+				m.error = fmt.Sprintf("DEBUG: Down pressed, cursor now at %d", m.cursor) // Debug
+			}
+			return m, nil // Prevent viewport from handling this key
+		case " ", "enter": // Toggle selection
+			if len(m.collections) > 0 && m.cursor < len(m.collections) {
+				m.collectionsService.ToggleCollection(m.cursor)
+				m.collections = m.collectionsService.GetCollections()
+				m.updateViewportContent()
+			}
+			return m, nil
+		case "ctrl+a": // Select all
+			m.collectionsService.SelectAll()
+			m.collections = m.collectionsService.GetCollections()
+			m.updateViewportContent()
+			return m, nil
+		case "ctrl+d": // Deselect all
+			m.collectionsService.DeselectAll()
+			m.collections = m.collectionsService.GetCollections()
+			m.updateViewportContent()
+			return m, nil
+		case "r": // Refresh collections
+			if m.connected {
+				m.loading = true
+				return m, m.loadCollections(m.ctx)
+			}
+			return m, nil
 		}
 
 	case connectionTestMsg:
@@ -193,8 +203,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.updateViewportContent()
 	}
 
-	m.viewport, cmd = m.viewport.Update(msg)
-	return m, cmd
+	return m, nil
 }
 
 // View renders the model
