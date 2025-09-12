@@ -38,7 +38,7 @@ func DefaultStyles() Styles {
 
 		messages: lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder()).
-			BorderForeground(lipgloss.Color("240")).
+			BorderForeground(lipgloss.Color("#8A7FD8")).
 			Padding(0, 1), // Add horizontal padding for better readability
 
 		emptyMessages: lipgloss.NewStyle().

@@ -235,28 +235,34 @@ func (m Model) renderTabBar() string {
 
 	activeTabStyle := lipgloss.NewStyle().
 		Bold(true).
-		Foreground(lipgloss.Color("15")).
-		Background(lipgloss.Color("62")).
+		Foreground(lipgloss.Color("15")).      // Bright white
+		Background(lipgloss.Color("#8A7FD8")). // Purple-blue to match chat border
 		Padding(0, 2)
 
 	inactiveTabStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("240")).
-		Background(lipgloss.Color("235")).
+		Foreground(lipgloss.Color("7")). // Light gray
+		Background(lipgloss.Color("0")). // Black
 		Padding(0, 2)
 
 	for i, tab := range m.tabs {
 		if Tab(i) == m.activeTab {
 			tabs = append(tabs, activeTabStyle.Render(tab))
-		} else {
-			tabs = append(tabs, inactiveTabStyle.Render(tab))
+			continue
 		}
+		tabs = append(tabs, inactiveTabStyle.Render(tab))
 	}
 
 	tabBarStyle := lipgloss.NewStyle().
-		Background(lipgloss.Color("235")).
+		Background(lipgloss.Color("0")). // Black background
 		Width(m.width)
 
-	return tabBarStyle.Render(lipgloss.JoinHorizontal(lipgloss.Top, tabs...))
+	// Add a visible marker to debug
+	tabContent := lipgloss.JoinHorizontal(lipgloss.Top, tabs...)
+	if tabContent == "" {
+		tabContent = "[DEBUG: No tabs rendered]"
+	}
+
+	return tabBarStyle.Render(tabContent)
 }
 
 // renderFooter renders the footer with help text
