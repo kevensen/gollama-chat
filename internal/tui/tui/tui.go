@@ -195,6 +195,19 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 // View renders the TUI
 func (m Model) View() string {
+	// For very small terminals, prioritize tabs and minimal content
+	if m.height < 3 {
+		// In extreme cases, just show tabs
+		if m.height == 1 {
+			return m.renderTabBar()
+		}
+		// With 2 lines, show tabs and minimal content
+		if m.height == 2 {
+			tabBar := m.renderTabBar()
+			return lipgloss.JoinVertical(lipgloss.Left, tabBar, "...")
+		}
+	}
+
 	// Tab bar
 	tabBar := m.renderTabBar()
 
@@ -212,8 +225,15 @@ func (m Model) View() string {
 	// Footer with help
 	footer := m.renderFooter()
 
-	// Calculate available height for content
-	contentHeight := m.height - lipgloss.Height(tabBar) - lipgloss.Height(footer)
+	// Calculate available height for content with minimum constraints
+	tabBarHeight := 1 // Always reserve 1 line for tabs
+	footerHeight := 1 // Always reserve 1 line for footer
+
+	// Calculate content height, ensuring it's never negative
+	contentHeight := m.height - tabBarHeight - footerHeight
+	if contentHeight < 1 {
+		contentHeight = 1 // Ensure at least 1 line for content
+	}
 
 	// Style the content area
 	contentStyle := lipgloss.NewStyle().
@@ -233,34 +253,45 @@ func (m Model) View() string {
 func (m Model) renderTabBar() string {
 	var tabs []string
 
+	// Use minimal styles to ensure tabs fit in constrained space
 	activeTabStyle := lipgloss.NewStyle().
 		Bold(true).
-		Foreground(lipgloss.Color("15")).      // Bright white
-		Background(lipgloss.Color("#8A7FD8")). // Purple-blue to match chat border
-		Padding(0, 2)
+		Foreground(lipgloss.Color("15")).     // Bright white
+		Background(lipgloss.Color("#8A7FD8")) // Purple-blue to match chat border
 
 	inactiveTabStyle := lipgloss.NewStyle().
 		Foreground(lipgloss.Color("7")). // Light gray
-		Background(lipgloss.Color("0")). // Black
-		Padding(0, 2)
+		Background(lipgloss.Color("0"))  // Black
 
-	for i, tab := range m.tabs {
-		if Tab(i) == m.activeTab {
-			tabs = append(tabs, activeTabStyle.Render(tab))
-			continue
-		}
-		tabs = append(tabs, inactiveTabStyle.Render(tab))
+	// Create compact tab names for minimal space scenarios
+	tabNames := []string{"Chat", "Config", "RAG"}
+	if m.width < 30 {
+		tabNames = []string{"C", "S", "R"} // Single letter tabs for very narrow terminals
 	}
 
+	for i, tab := range tabNames {
+		if i >= len(m.tabs) {
+			break // Safety check
+		}
+
+		tabText := " " + tab + " " // Add minimal spacing
+		if Tab(i) == m.activeTab {
+			tabs = append(tabs, activeTabStyle.Render(tabText))
+		} else {
+			tabs = append(tabs, inactiveTabStyle.Render(tabText))
+		}
+	}
+
+	// Always ensure we have content to render
+	tabContent := lipgloss.JoinHorizontal(lipgloss.Top, tabs...)
+	if tabContent == "" {
+		tabContent = " Chat Settings RAG " // Fallback content
+	}
+
+	// Create a simple style that guarantees visibility
 	tabBarStyle := lipgloss.NewStyle().
 		Background(lipgloss.Color("0")). // Black background
 		Width(m.width)
-
-	// Add a visible marker to debug
-	tabContent := lipgloss.JoinHorizontal(lipgloss.Top, tabs...)
-	if tabContent == "" {
-		tabContent = "[DEBUG: No tabs rendered]"
-	}
 
 	return tabBarStyle.Render(tabContent)
 }
@@ -270,17 +301,24 @@ func (m Model) renderFooter() string {
 	footerStyle := lipgloss.NewStyle().
 		Foreground(lipgloss.Color("240")).
 		Background(lipgloss.Color("235")).
-		Padding(0, 1).
 		Width(m.width)
 
-	helpText := "Tab/Shift+Tab: Switch tabs • Ctrl+C/q: Quit"
+	// Simplified help text for small terminals
+	helpText := "Tab: Switch • Ctrl+C: Quit"
 
-	// Add tab-specific help
-	switch m.activeTab {
-	case ChatTab:
-		helpText += " • Enter: Send • ↑/↓: Scroll line • PgUp/PgDn: Scroll page • Ctrl+L: Clear Chat • Ctrl+S: Toggle System Prompt"
-	case ConfigTab:
-		helpText += " • Enter: Edit & auto-save • Esc: Cancel"
+	// Add more detailed help only if we have enough width
+	if m.width > 50 {
+		helpText = "Tab/Shift+Tab: Switch tabs • Ctrl+C/q: Quit"
+
+		// Add tab-specific help only for wider terminals
+		if m.width > 80 {
+			switch m.activeTab {
+			case ChatTab:
+				helpText += " • Enter: Send • ↑/↓: Scroll"
+			case ConfigTab:
+				helpText += " • Enter: Edit • Esc: Cancel"
+			}
+		}
 	}
 
 	return footerStyle.Render(helpText)
