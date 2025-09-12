@@ -311,7 +311,15 @@ func (m Model) View() string {
 		output.WriteString(footer.String())
 	}
 
-	return output.String()
+	// Container with border (matching other tabs)
+	containerStyle := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(lipgloss.Color("#8A7FD8")).
+		Padding(1, 2).
+		Width(m.width - 2).
+		Height(m.height - 6)
+
+	return containerStyle.Render(output.String())
 }
 
 // testConnection starts connection testing

@@ -24,7 +24,7 @@ func NewModel() Model {
 	// Restore the border styling for better visual appearance
 	style := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
-		BorderForeground(lipgloss.Color("240")). // Use same color as messages border (240)
+		BorderForeground(lipgloss.Color("#8A7FD8")). // Use same purple color as messages border
 		Height(3).
 		Padding(0, 1) // Add horizontal padding for better readability
 

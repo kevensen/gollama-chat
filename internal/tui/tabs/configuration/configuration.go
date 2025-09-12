@@ -410,7 +410,7 @@ func (m Model) renderConfigurationViewWithWidth(width int) string {
 	// Container
 	containerStyle := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
-		BorderForeground(lipgloss.Color("240")).
+		BorderForeground(lipgloss.Color("#8A7FD8")).
 		Padding(1, 2).
 		Width(width - 2).
 		Height(m.height - 6)
