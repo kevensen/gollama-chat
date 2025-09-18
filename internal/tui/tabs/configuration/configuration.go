@@ -392,15 +392,14 @@ func (m Model) renderConfigurationViewWithWidth(width int) string {
 	helpStyle := lipgloss.NewStyle().
 		Foreground(lipgloss.Color("240")).
 		Width(width - 2)
-
+	content = append(content, helpStyle.Render("↑/↓: Navigate • Enter: Edit/Select (auto-saves) • S: Save • R: Reset to defaults"))
 	if m.editing {
 		content = append(content, helpStyle.Render("Enter: Save • Esc: Cancel"))
-	} else if m.showModelPanel {
-		content = append(content, helpStyle.Render("Model Selection: ↑/↓: Navigate • Enter: Select • Esc: Cancel"))
-	} else {
-		content = append(content, helpStyle.Render("↑/↓: Navigate • Enter: Edit/Select (auto-saves) • S: Save • R: Reset to defaults"))
 	}
 
+	if m.showModelPanel {
+		content = append(content, helpStyle.Render("Model Selection: ↑/↓: Navigate • Enter: Select • Esc: Cancel"))
+	}
 	// Message
 	if m.message != "" {
 		content = append(content, "")
@@ -423,8 +422,10 @@ func (m Model) renderField(field Field, label, value, help string) string {
 	isActive := field == m.activeField
 	isEditing := m.editing && isActive
 
-	var labelStyle, valueStyle lipgloss.Style
-
+	labelStyle := lipgloss.NewStyle().
+		Foreground(lipgloss.Color("7"))
+	valueStyle := lipgloss.NewStyle().
+		Foreground(lipgloss.Color("15"))
 	if isActive {
 		labelStyle = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("12")).
@@ -432,11 +433,6 @@ func (m Model) renderField(field Field, label, value, help string) string {
 		valueStyle = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("15")).
 			Background(lipgloss.Color("62"))
-	} else {
-		labelStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("7"))
-		valueStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("15"))
 	}
 
 	// Display value with cursor if editing
@@ -462,11 +458,9 @@ func (m Model) renderField(field Field, label, value, help string) string {
 	}
 
 	// Format the field with status indicator if applicable
-	var fieldLine string
+	fieldLine := fmt.Sprintf("%s: %s", labelStyle.Render(label), valueStyle.Render(displayValue))
 	if statusIndicator != "" {
 		fieldLine = fmt.Sprintf("%s: %s %s", labelStyle.Render(label), valueStyle.Render(displayValue), statusIndicator)
-	} else {
-		fieldLine = fmt.Sprintf("%s: %s", labelStyle.Render(label), valueStyle.Render(displayValue))
 	}
 
 	if isActive {
