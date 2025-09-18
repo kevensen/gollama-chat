@@ -14,6 +14,7 @@ import (
 
 func main() {
 	ctx := context.Background()
+
 	// Load configuration
 	config, err := configuration.Load()
 	if err != nil {
@@ -23,13 +24,14 @@ func main() {
 	// Create TUI model
 	model := tui.NewModel(ctx, config)
 
-	// Create Bubble Tea program with performance optimizations
+	// Create Bubble Tea program with balanced performance optimizations
 	program := tea.NewProgram(
 		model,
 		tea.WithAltScreen(),
 		tea.WithMouseCellMotion(),
-		tea.WithFPS(60),    // Higher FPS for more responsive input
-		tea.WithInputTTY(), // Use TTY input for better responsiveness
+		tea.WithFPS(60),            // Balanced FPS - responsive but not excessive
+		tea.WithInputTTY(),         // Use TTY input for better responsiveness
+		tea.WithoutSignalHandler(), // Disable signal handling for less overhead
 	)
 
 	// Run the program

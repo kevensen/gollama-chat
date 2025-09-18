@@ -33,6 +33,10 @@ type Model struct {
 	tokenCount       int  // Estimated token count for current conversation
 	showSystemPrompt bool // Whether to show the system prompt
 
+	// Performance optimization: Cache model context size
+	cachedModelName   string // Track which model's context size we cached
+	cachedContextSize int    // Cached context size to avoid API calls during rendering
+
 	// Optimized components
 	inputModel   *input.Model
 	messageCache *MessageCache
@@ -124,9 +128,11 @@ type ragStatusMsg struct {
 
 // Init initializes the chat model
 func (m Model) Init() tea.Cmd {
+	var cmds []tea.Cmd
+
 	// Initialize RAG service if it's enabled
 	if m.config.RAGEnabled {
-		return tea.Cmd(func() tea.Msg {
+		ragCmd := tea.Cmd(func() tea.Msg {
 			err := m.ragService.Initialize(m.ctx)
 			if err != nil {
 				// Just log the error, don't prevent the app from starting
@@ -134,6 +140,22 @@ func (m Model) Init() tea.Cmd {
 			}
 			return nil
 		})
+		cmds = append(cmds, ragCmd)
+	}
+
+	// Pre-fetch model context size in background to avoid UI blocking
+	contextCmd := tea.Cmd(func() tea.Msg {
+		// This runs in background and updates the cache
+		if m.config != nil && m.config.ChatModel != "" {
+			// Force a context size fetch to populate cache
+			_ = m.getModelContextSize(m.config.ChatModel)
+		}
+		return nil
+	})
+	cmds = append(cmds, contextCmd)
+
+	if len(cmds) > 0 {
+		return tea.Batch(cmds...)
 	}
 	return nil
 }
@@ -471,15 +493,15 @@ func (m Model) wrapText(text string, width int) []string {
 }
 
 // renderStatusBar renders the status bar showing model and token information
-func (m Model) renderStatusBar() string {
+func (m *Model) renderStatusBar() string {
 	// Use the pre-defined style from styles.go
 	statusStyle := m.styles.statusBar.Width(m.width - 2)
 
 	// Get model name
 	modelInfo := fmt.Sprintf("Model: %s", m.config.ChatModel)
 
-	// Get context window size
-	contextSize := m.getModelContextSize(m.config.ChatModel)
+	// Get context window size efficiently (NEVER make API calls during render!)
+	contextSize := m.getCachedModelContextSize()
 	contextInfo := fmt.Sprintf("Context: %d", contextSize)
 
 	// Get token information
@@ -500,7 +522,44 @@ func (m Model) renderStatusBar() string {
 	return statusStyle.Render(status)
 }
 
+// getCachedModelContextSize returns the context size for the current model,
+// using ONLY cached/fallback values to ensure zero latency during rendering
+func (m *Model) getCachedModelContextSize() int {
+	// Check if we have the context size cached for the current model
+	if m.cachedModelName == m.config.ChatModel && m.cachedContextSize > 0 {
+		return m.cachedContextSize
+	}
+
+	// ALWAYS use fallback values for immediate rendering (NEVER make API calls!)
+	// This ensures UI responsiveness at all times
+	contextSize := getFallbackContextSize(m.config.ChatModel)
+
+	// Cache the fallback result immediately
+	m.cachedModelName = m.config.ChatModel
+	m.cachedContextSize = contextSize
+
+	return contextSize
+}
+
 // GetRAGService returns the RAG service for external access
 func (m Model) GetRAGService() *rag.Service {
 	return m.ragService
+}
+
+// HandleFastInputChar handles ASCII input characters with zero overhead
+// Returns true if the character was handled (fast path), false if normal processing should continue
+func (m *Model) HandleFastInputChar(char rune) bool {
+	// Only handle ASCII printable characters
+	if char < 32 || char > 126 {
+		return false
+	}
+
+	// Don't handle input if loading
+	if m.inputModel.IsLoading() {
+		return false
+	}
+
+	// Direct character insertion with zero overhead
+	m.inputModel.InsertCharacterDirect(char)
+	return true
 }

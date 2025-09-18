@@ -80,6 +80,22 @@ func (m *Model) SetValue(value string) {
 	m.cursor = len(value)
 }
 
+// InsertCharacterDirect inserts a character at cursor without any overhead (ultra-fast path)
+func (m *Model) InsertCharacterDirect(char rune) {
+	if m.cursor == len(m.value) {
+		// Fast append for most common case
+		m.value += string(char)
+	} else {
+		// Manual slice manipulation for mid-insertion
+		newValue := make([]byte, 0, len(m.value)+4) // UTF-8 safety margin
+		newValue = append(newValue, m.value[:m.cursor]...)
+		newValue = append(newValue, string(char)...)
+		newValue = append(newValue, m.value[m.cursor:]...)
+		m.value = string(newValue)
+	}
+	m.cursor++
+}
+
 // CursorPosition returns the current cursor position
 func (m Model) CursorPosition() int {
 	return m.cursor
@@ -100,22 +116,15 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
-		// Fast path for common character input - no need for full key handling
-		if len(msg.String()) == 1 && msg.String() >= " " && msg.String() <= "~" {
-			// Direct character insertion for maximum responsiveness
-			char := msg.String()
-			if m.cursor == len(m.value) {
-				m.value += char
-			} else {
-				// Use more efficient string building for mid-insertion
-				result := make([]byte, 0, len(m.value)+1)
-				result = append(result, m.value[:m.cursor]...)
-				result = append(result, char...)
-				result = append(result, m.value[m.cursor:]...)
-				m.value = string(result)
+		// NOTE: ASCII characters should now be handled by the ultra-fast path in TUI
+		// This is a fallback for non-ASCII or when ultra-fast path is disabled
+		if msg.Type == tea.KeyRunes && len(msg.Runes) == 1 {
+			char := msg.Runes[0]
+			if char >= 32 && char <= 126 { // ASCII printable
+				// Direct character insertion using the same fast method
+				m.InsertCharacterDirect(char)
+				return m, nil
 			}
-			m.cursor++
-			return m, nil
 		}
 		return m.handleKeyMsg(msg)
 	case tea.WindowSizeMsg:
