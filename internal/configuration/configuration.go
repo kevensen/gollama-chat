@@ -30,7 +30,7 @@ func DefaultConfig() *Config {
 		RAGEnabled:          true,
 		OllamaURL:           "http://localhost:11434",
 		ChromaDBURL:         "http://localhost:8000",
-		ChromaDBDistance:    0.95,
+		ChromaDBDistance:    1.0, // Updated for cosine similarity (0-2 range)
 		MaxDocuments:        5,
 		DarkMode:            false,
 		SelectedCollections: make(map[string]bool),
@@ -156,8 +156,8 @@ func (c *Config) Validate() error {
 	if c.ChromaDBURL == "" && c.RAGEnabled {
 		return fmt.Errorf("chromaDBURL cannot be empty when RAG is enabled")
 	}
-	if c.ChromaDBDistance < 0 || c.ChromaDBDistance > 1 {
-		return fmt.Errorf("chromaDBDistance must be between 0 and 1")
+	if c.ChromaDBDistance < 0 || c.ChromaDBDistance > 2 {
+		return fmt.Errorf("chromaDBDistance must be between 0 and 2 (cosine similarity range)")
 	}
 	if c.MaxDocuments <= 0 {
 		return fmt.Errorf("maxDocuments must be greater than 0")
