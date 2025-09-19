@@ -278,16 +278,25 @@ func (m Model) View() string {
 		contentHeight = 1 // Ensure at least 1 line for content
 	}
 
-	// Style the content area
-	contentStyle := lipgloss.NewStyle().
-		Height(contentHeight).
-		Width(m.width)
+	// For chat tab, don't apply height constraint as it manages its own layout
+	// For config and RAG tabs, let them handle their own full height
+	var styledContent string
+	if m.activeTab == ChatTab {
+		// Chat tab uses its own layout management
+		contentStyle := lipgloss.NewStyle().
+			Height(contentHeight).
+			Width(m.width)
+		styledContent = contentStyle.Render(content)
+	} else {
+		// Config and RAG tabs manage their own height with containers
+		styledContent = content
+	}
 
 	// Return the main content without complex centering
 	return lipgloss.JoinVertical(
 		lipgloss.Left,
 		tabBar,
-		contentStyle.Render(content),
+		styledContent,
 		footer,
 	)
 }
@@ -357,9 +366,11 @@ func (m Model) renderFooter() string {
 		if m.width > 80 {
 			switch m.activeTab {
 			case ChatTab:
-				helpText += " • Enter: Send • ↑/↓: Scroll"
+				helpText += " • Enter: Send • ↑/↓: Scroll • Ctrl+S: System Prompt"
 			case ConfigTab:
 				helpText += " • Enter: Edit • Esc: Cancel"
+			case RAGTab:
+				helpText += " • Space: Toggle • ↑/↓: Navigate • R: Refresh"
 			}
 		}
 	}

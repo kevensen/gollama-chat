@@ -406,13 +406,20 @@ func (m Model) renderConfigurationViewWithWidth(width int) string {
 		content = append(content, m.messageStyle.Render(m.message))
 	}
 
-	// Container
+	// Container - calculate height like main TUI does for content area
+	tabBarHeight := 1
+	footerHeight := 1
+	contentHeight := m.height - tabBarHeight - footerHeight
+	if contentHeight < 1 {
+		contentHeight = 1
+	}
+
 	containerStyle := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(lipgloss.Color("#8A7FD8")).
 		Padding(1, 2).
 		Width(width - 2).
-		Height(m.height - 6)
+		Height(contentHeight) // Match main TUI's content height calculation
 
 	return containerStyle.Render(strings.Join(content, "\n"))
 }

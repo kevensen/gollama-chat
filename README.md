@@ -65,6 +65,7 @@ Default configuration:
 #### Chat Tab
 - `Enter` - Send message
 - `Ctrl+L` - Clear chat history
+- `Ctrl+S` - Toggle system prompt display
 - `↑` / `↓` - Scroll through messages
 - `←` / `→` - Move cursor in input
 

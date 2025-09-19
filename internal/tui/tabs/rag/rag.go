@@ -77,10 +77,18 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.width = msg.Width
 		m.height = msg.Height
 
-		// Calculate viewport size (leave room for header and footer)
-		headerHeight := 5 // Title + connection status + instructions
-		footerHeight := 3 // Selection count + controls
-		availableHeight := m.height - headerHeight - footerHeight
+		// Calculate viewport size (leave room for header and footer within the container)
+		tabBarHeight := 1
+		footerHeight := 1
+		contentHeight := m.height - tabBarHeight - footerHeight
+		if contentHeight < 1 {
+			contentHeight = 1
+		}
+
+		headerHeight := 5     // Title + connection status + instructions
+		ragFooterHeight := 3  // Selection count + controls
+		containerPadding := 4 // Border (2) + padding (2)
+		availableHeight := contentHeight - headerHeight - ragFooterHeight - containerPadding
 		if availableHeight < 1 {
 			availableHeight = 1
 		}
@@ -312,12 +320,20 @@ func (m Model) View() string {
 	}
 
 	// Container with border (matching other tabs)
+	// Calculate height like main TUI does for content area
+	tabBarHeight := 1
+	footerHeight := 1
+	contentHeight := m.height - tabBarHeight - footerHeight
+	if contentHeight < 1 {
+		contentHeight = 1
+	}
+
 	containerStyle := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(lipgloss.Color("#8A7FD8")).
 		Padding(1, 2).
 		Width(m.width - 2).
-		Height(m.height - 6)
+		Height(contentHeight) // Match main TUI's content height calculation
 
 	return containerStyle.Render(output.String())
 }
