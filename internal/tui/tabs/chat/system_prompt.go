@@ -3,6 +3,8 @@ package chat
 import (
 	"fmt"
 	"strings"
+
+	"github.com/charmbracelet/lipgloss"
 )
 
 // getSystemPromptHeight calculates the height of the system prompt panel
@@ -11,8 +13,14 @@ func (m Model) getSystemPromptHeight() int {
 		return 0
 	}
 
+	var systemPrompt string
+	if m.systemPromptEditMode {
+		systemPrompt = m.systemPromptEditor
+	} else {
+		systemPrompt = m.sessionSystemPrompt
+	}
+
 	// Estimate system prompt height based on content and borders
-	systemPrompt := m.config.DefaultSystemPrompt
 	lines := m.wrapText(systemPrompt, m.width-4) // Account for borders
 
 	// Calculate the height but make sure it doesn't exceed a reasonable size
@@ -35,15 +43,29 @@ func (m Model) renderSystemPrompt() string {
 		return ""
 	}
 
-	// Get the system prompt from config
-	systemPrompt := m.config.DefaultSystemPrompt
+	var systemPrompt string
+	var header string
+
+	if m.systemPromptEditMode {
+		// Edit mode - show editable content
+		systemPrompt = m.systemPromptEditor
+		header = "System Prompt - EDITING (ctrl+s to save, ctrl+r to restore default)"
+	} else {
+		// Display mode - show current session prompt
+		systemPrompt = m.sessionSystemPrompt
+		header = "System Prompt (ctrl+s to close, ctrl+e to edit)"
+	}
 
 	// Apply the style and wrap text to fit
 	width := m.width - 4 // Account for borders and padding
 
 	// Handle empty system prompt
 	if strings.TrimSpace(systemPrompt) == "" {
-		systemPrompt = "No system prompt configured."
+		if m.systemPromptEditMode {
+			systemPrompt = ""
+		} else {
+			systemPrompt = "No system prompt configured."
+		}
 	}
 
 	// Wrap the text and limit its height
@@ -55,18 +77,21 @@ func (m Model) renderSystemPrompt() string {
 	if len(wrappedLines) > maxPromptHeight {
 		// If text is too long, truncate and add an ellipsis
 		wrappedLines = wrappedLines[:maxPromptHeight]
-		wrappedLines[maxPromptHeight-1] += "..."
+		if !m.systemPromptEditMode {
+			wrappedLines[maxPromptHeight-1] += "..."
+		}
 	}
 	wrappedText := strings.Join(wrappedLines, "\n")
 
 	// Create a header and content
-	header := "System Prompt (ctrl+s to toggle)"
 	content := fmt.Sprintf("%s\n\n%s", header, wrappedText)
 
-	// Apply styling without constraining height to avoid cutting off borders
-	// Add a small top margin to ensure the top border is visible
-	return m.styles.systemPrompt.
-		Width(m.width - 2).
-		MarginTop(1). // Add top margin to push down from tab bar
-		Render(content)
+	// Apply different styling based on edit mode
+	style := m.styles.systemPrompt.Width(m.width - 2).MarginTop(1)
+	if m.systemPromptEditMode {
+		// Add a visual indicator for edit mode (different border color)
+		style = style.BorderForeground(lipgloss.Color("#FFD700")) // Gold color for edit mode
+	}
+
+	return style.Render(content)
 }

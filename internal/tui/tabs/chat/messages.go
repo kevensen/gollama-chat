@@ -48,10 +48,10 @@ func (m Model) sendMessage(prompt string) tea.Cmd {
 		var messages []api.Message
 
 		// Add system prompt if configured
-		if m.config.DefaultSystemPrompt != "" {
+		if m.sessionSystemPrompt != "" {
 			messages = append(messages, api.Message{
 				Role:    "system",
-				Content: m.config.DefaultSystemPrompt,
+				Content: m.sessionSystemPrompt,
 			})
 		}
 

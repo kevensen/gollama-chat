@@ -3,6 +3,7 @@ package chat
 import (
 	"context"
 	"fmt"
+	"os"
 	"strings"
 	"time"
 
@@ -32,6 +33,11 @@ type Model struct {
 	ctx              context.Context
 	tokenCount       int  // Estimated token count for current conversation
 	showSystemPrompt bool // Whether to show the system prompt
+
+	// Session system prompt feature
+	sessionSystemPrompt  string // Current session system prompt (not persisted)
+	systemPromptEditMode bool   // Whether we're in edit mode for the system prompt
+	systemPromptEditor   string // Content being edited in the system prompt editor
 
 	// Performance optimization: Cache model context size
 	cachedModelName   string // Track which model's context size we cached
@@ -84,6 +90,18 @@ var modelContextSizes = map[string]int{
 	"dolphin-phi":     4096,
 }
 
+// debugLog writes debug messages to a file for troubleshooting
+func debugLog(message string) {
+	f, err := os.OpenFile("/tmp/gollama-debug.log", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	if err != nil {
+		return
+	}
+	defer f.Close()
+
+	timestamp := time.Now().Format("15:04:05.000")
+	f.WriteString(fmt.Sprintf("[%s] %s\n", timestamp, message))
+}
+
 // NewModel creates a new chat model
 func NewModel(ctx context.Context, config *configuration.Config) Model {
 	// Initialize RAG service
@@ -106,7 +124,10 @@ func NewModel(ctx context.Context, config *configuration.Config) Model {
 		messagesNeedsUpdate:     true,
 		statusNeedsUpdate:       true,
 		systemPromptNeedsUpdate: true,
-		showSystemPrompt:        false, // Initially hidden
+		showSystemPrompt:        false,                      // Initially hidden
+		sessionSystemPrompt:     config.DefaultSystemPrompt, // Initialize with default
+		systemPromptEditMode:    false,
+		systemPromptEditor:      "",
 	}
 }
 
@@ -196,15 +217,31 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Fast path for text input - delegate immediately to input component for maximum responsiveness
 		key := keyMsg.String()
 		if len(key) == 1 && key >= " " && key <= "~" {
-			updatedInputModel, cmd := m.inputModel.Update(msg)
-			m.inputModel = &updatedInputModel
-			return m, cmd
+			// DEBUG: Log character input and current state
+			debugLog(fmt.Sprintf("Character '%s', systemPromptEditMode=%t, showSystemPrompt=%t", key, m.systemPromptEditMode, m.showSystemPrompt))
+			if m.systemPromptEditMode {
+				// Handle text input for system prompt editing
+				debugLog(fmt.Sprintf("Adding '%s' to system prompt editor", key))
+				m.systemPromptEditor += key
+				m.systemPromptNeedsUpdate = true
+				return m, nil
+			} else {
+				debugLog(fmt.Sprintf("Delegating '%s' to input model", key))
+				updatedInputModel, cmd := m.inputModel.Update(msg)
+				m.inputModel = &updatedInputModel
+				return m, cmd
+			}
 		}
 
 		// Handle chat-level control keys
 		switch key {
 		case "enter":
-			if strings.TrimSpace(m.inputModel.Value()) != "" {
+			if m.systemPromptEditMode {
+				// Add newline to system prompt editor
+				m.systemPromptEditor += "\n"
+				m.systemPromptNeedsUpdate = true
+				return m, nil
+			} else if strings.TrimSpace(m.inputModel.Value()) != "" {
 				// Add user message
 				userMsg := Message{
 					Role:    "user",
@@ -239,11 +276,55 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 
 		case "ctrl+s":
-			// Toggle system prompt display
-			m.showSystemPrompt = !m.showSystemPrompt
+			// Handle system prompt toggle and save
+			debugLog(fmt.Sprintf("Ctrl+S pressed, current state: showSystemPrompt=%t, systemPromptEditMode=%t", m.showSystemPrompt, m.systemPromptEditMode))
+			if m.showSystemPrompt && m.systemPromptEditMode {
+				// Save the edited prompt and exit edit mode
+				debugLog("Saving prompt and exiting edit mode")
+				m.sessionSystemPrompt = m.systemPromptEditor
+				m.systemPromptEditMode = false
+				m.systemPromptEditor = ""
+				m.systemPromptNeedsUpdate = true
+				return m, nil
+			} else if m.showSystemPrompt {
+				// Close system prompt pane
+				debugLog("Closing system prompt pane")
+				m.showSystemPrompt = false
+				m.systemPromptNeedsUpdate = true
+				m.messagesNeedsUpdate = true // Force layout refresh
+				return m, nil
+			} else {
+				// Open system prompt pane
+				debugLog("Opening system prompt pane")
+				m.showSystemPrompt = true
+				m.systemPromptNeedsUpdate = true
+				m.messagesNeedsUpdate = true // Force layout refresh
+				return m, nil
+			}
+
+		case "ctrl+e":
+			// Enter edit mode for system prompt - open pane if needed
+			debugLog(fmt.Sprintf("Ctrl+E pressed, current state: showSystemPrompt=%t, systemPromptEditMode=%t", m.showSystemPrompt, m.systemPromptEditMode))
+			if !m.showSystemPrompt {
+				// Open system prompt pane if it's not visible
+				m.showSystemPrompt = true
+				m.messagesNeedsUpdate = true // Force layout refresh
+				debugLog("Opened system prompt pane")
+			}
+			// Always enter edit mode and clear the prompt
+			m.systemPromptEditMode = true
+			m.systemPromptEditor = "" // Clear the prompt as requested
 			m.systemPromptNeedsUpdate = true
-			m.messagesNeedsUpdate = true // Force layout refresh
+			debugLog("Set systemPromptEditMode=true, cleared editor")
 			return m, nil
+
+		case "ctrl+r":
+			// Restore default system prompt when in edit mode
+			if m.showSystemPrompt && m.systemPromptEditMode {
+				m.systemPromptEditor = m.config.DefaultSystemPrompt
+				m.systemPromptNeedsUpdate = true
+				return m, nil
+			}
 
 		case "ctrl+l":
 			// Clear chat
@@ -253,11 +334,23 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.messageCache.InvalidateCache()
 			return m, nil
 
-		case "backspace", "left", "right", "home", "end", "ctrl+a", "ctrl+e":
+		case "backspace", "left", "right", "home", "end", "ctrl+a":
 			// Delegate cursor and deletion operations directly to input
-			updatedInputModel, cmd := m.inputModel.Update(msg)
-			m.inputModel = &updatedInputModel
-			return m, cmd
+			if m.systemPromptEditMode {
+				// Handle system prompt editing keys
+				switch key {
+				case "backspace":
+					if len(m.systemPromptEditor) > 0 {
+						m.systemPromptEditor = m.systemPromptEditor[:len(m.systemPromptEditor)-1]
+						m.systemPromptNeedsUpdate = true
+					}
+				}
+				return m, nil
+			} else {
+				updatedInputModel, cmd := m.inputModel.Update(msg)
+				m.inputModel = &updatedInputModel
+				return m, cmd
+			}
 
 		case "up":
 			if m.scrollOffset > 0 {
@@ -321,9 +414,23 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		default:
 			// For all other keys, delegate to input component for maximum responsiveness
 			// This includes character input, special key combinations, etc.
-			updatedInputModel, cmd := m.inputModel.Update(msg)
-			m.inputModel = &updatedInputModel
-			return m, cmd
+			debugLog(fmt.Sprintf("Default case: key='%s', systemPromptEditMode=%t", key, m.systemPromptEditMode))
+			if m.systemPromptEditMode {
+				// Handle text input for system prompt editing
+				if len(key) == 1 && key >= " " && key <= "~" {
+					debugLog(fmt.Sprintf("Default case: Adding '%s' to system prompt editor", key))
+					m.systemPromptEditor += key
+					m.systemPromptNeedsUpdate = true
+				} else {
+					debugLog(fmt.Sprintf("Default case: Non-printable key '%s' ignored in edit mode", key))
+				}
+				return m, nil
+			} else {
+				debugLog(fmt.Sprintf("Default case: Delegating '%s' to input model", key))
+				updatedInputModel, cmd := m.inputModel.Update(msg)
+				m.inputModel = &updatedInputModel
+				return m, cmd
+			}
 		}
 	}
 
@@ -559,7 +666,20 @@ func (m *Model) HandleFastInputChar(char rune) bool {
 		return false
 	}
 
-	// Direct character insertion with zero overhead
+	// DEBUG: Log character input and current state
+	debugLog(fmt.Sprintf("HandleFastInputChar: char='%c', systemPromptEditMode=%t, showSystemPrompt=%t", char, m.systemPromptEditMode, m.showSystemPrompt))
+
+	// Check if we're in system prompt edit mode
+	if m.systemPromptEditMode {
+		// Handle text input for system prompt editing
+		debugLog(fmt.Sprintf("HandleFastInputChar: Adding '%c' to system prompt editor", char))
+		m.systemPromptEditor += string(char)
+		m.systemPromptNeedsUpdate = true
+		return true
+	}
+
+	// Direct character insertion to input model with zero overhead
+	debugLog(fmt.Sprintf("HandleFastInputChar: Adding '%c' to input model", char))
 	m.inputModel.InsertCharacterDirect(char)
 	return true
 }

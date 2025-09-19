@@ -10,8 +10,8 @@ func (m *Model) updateTokenCount() {
 	var totalText string
 
 	// Include system prompt if configured
-	if m.config.DefaultSystemPrompt != "" {
-		totalText += m.config.DefaultSystemPrompt + " "
+	if m.sessionSystemPrompt != "" {
+		totalText += m.sessionSystemPrompt + " "
 	}
 
 	// Combine all message content
