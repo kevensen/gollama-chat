@@ -1,6 +1,6 @@
 # Makefile for gollama-chat
 
-.PHONY: build run clean test fmt vet
+.PHONY: build run clean test test-coverage test-short test-verbose test-bench fmt vet deps dev
 
 # Variables
 BINARY_NAME=gollama-chat
@@ -31,23 +31,70 @@ clean:
 
 # Run tests
 test:
+	@echo "Running tests..."
+	@$(GO_BIN) test ./...
+
+# Run tests with verbose output
+test-verbose:
+	@echo "Running tests with verbose output..."
 	@$(GO_BIN) test -v ./...
+
+# Run tests with coverage
+test-coverage:
+	@echo "Running tests with coverage..."
+	@$(GO_BIN) test -cover ./...
+	@echo "Generating detailed coverage report..."
+	@$(GO_BIN) test -coverprofile=coverage.out ./...
+	@$(GO_BIN) tool cover -html=coverage.out -o coverage.html
+	@echo "Coverage report generated: coverage.html"
+
+# Run short tests only (skip longer running tests)
+test-short:
+	@echo "Running short tests..."
+	@$(GO_BIN) test -short ./...
+
+# Run benchmarks
+test-bench:
+	@echo "Running benchmarks..."
+	@$(GO_BIN) test -bench=. ./...
+
+# Run specific test package
+test-config:
+	@echo "Running configuration tests..."
+	@$(GO_BIN) test -v ./internal/configuration
+
+test-rag:
+	@echo "Running RAG service tests..."
+	@$(GO_BIN) test -v ./internal/rag
+
+test-chat:
+	@echo "Running chat tests..."
+	@$(GO_BIN) test -v ./internal/tui/tabs/chat
 
 # Format code
 fmt:
+	@echo "Formatting code..."
 	@$(GO_BIN) fmt ./...
 
 # Vet code
 vet:
+	@echo "Vetting code..."
 	@$(GO_BIN) vet ./...
 
 # Install dependencies
 deps:
+	@echo "Installing dependencies..."
 	@$(GO_BIN) mod download
 	@$(GO_BIN) mod tidy
 
 # Development workflow
 dev: fmt vet test build
+	@echo "Development workflow complete!"
+
+# Show test coverage in terminal
+coverage-terminal:
+	@$(GO_BIN) test -coverprofile=coverage.out ./...
+	@$(GO_BIN) tool cover -func=coverage.out
 
 # Help
 help:
