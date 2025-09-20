@@ -116,6 +116,12 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
+		// Handle space key specifically since it comes as tea.KeySpace, not tea.KeyRunes
+		if msg.Type == tea.KeySpace {
+			m.InsertCharacterDirect(' ')
+			return m, nil
+		}
+
 		// NOTE: ASCII characters should now be handled by the ultra-fast path in TUI
 		// This is a fallback for non-ASCII or when ultra-fast path is disabled
 		if msg.Type == tea.KeyRunes && len(msg.Runes) == 1 {

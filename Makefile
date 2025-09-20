@@ -58,6 +58,21 @@ test-bench:
 	@echo "Running benchmarks..."
 	@$(GO_BIN) test -bench=. ./...
 
+# Run input performance tests with thresholds
+test-performance:
+	@echo "Running input performance tests..."
+	@./test_input_performance.sh
+
+# Run input benchmarks only
+test-input-bench:
+	@echo "Running input component benchmarks..."
+	@$(GO_BIN) test -bench=. -benchmem ./internal/tui/tabs/chat/input/
+
+# Run full input pipeline benchmarks
+test-pipeline-bench:
+	@echo "Running full input pipeline benchmarks..."
+	@$(GO_BIN) test -bench=. -benchmem ./internal/tui/tui/
+
 # Run specific test package
 test-config:
 	@echo "Running configuration tests..."

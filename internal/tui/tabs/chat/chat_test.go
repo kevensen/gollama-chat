@@ -2,6 +2,8 @@ package chat
 
 import (
 	"context"
+	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -489,5 +491,470 @@ func TestDefaultStyles(t *testing.T) {
 	messagesResult := styles.messages.Render(testText)
 	if len(messagesResult) == 0 {
 		t.Error("messages.Render should return non-empty result")
+	}
+}
+
+// Test View Rendering Functions
+func TestModel_CalculateMessagesHeight(t *testing.T) {
+	config := &configuration.Config{
+		ChatModel:      "test-model",
+		EmbeddingModel: "test-embedding",
+		OllamaURL:      "http://localhost:11434",
+	}
+	ctx := context.Background()
+	model := NewModel(ctx, config)
+	model.width = 80
+
+	// Test with no messages
+	height := model.calculateMessagesHeight()
+	if height != 0 {
+		t.Errorf("Empty message list should have height 0, got %d", height)
+	}
+
+	// Test with one message
+	model.messages = []Message{
+		{Role: "user", Content: "Hello", Time: time.Now()},
+	}
+	height = model.calculateMessagesHeight()
+	if height <= 0 {
+		t.Error("Single message should have positive height")
+	}
+
+	// Test with multiple messages
+	model.messages = append(model.messages, Message{
+		Role: "assistant", Content: "Hi there!", Time: time.Now(),
+	})
+	newHeight := model.calculateMessagesHeight()
+	if newHeight <= height {
+		t.Error("Additional message should increase total height")
+	}
+
+	// Test with long message content
+	model.messages = []Message{
+		{Role: "user", Content: strings.Repeat("This is a very long message that should wrap across multiple lines. ", 10), Time: time.Now()},
+	}
+	longHeight := model.calculateMessagesHeight()
+	if longHeight <= 5 {
+		t.Error("Long message should have significant height due to wrapping")
+	}
+}
+
+func TestModel_FormatMessage(t *testing.T) {
+	config := &configuration.Config{
+		ChatModel:      "test-model",
+		EmbeddingModel: "test-embedding",
+		OllamaURL:      "http://localhost:11434",
+	}
+	ctx := context.Background()
+	model := NewModel(ctx, config)
+	model.width = 80
+	model.styles = DefaultStyles()
+
+	testTime := time.Date(2025, 9, 19, 14, 30, 45, 0, time.UTC)
+
+	tests := []struct {
+		name             string
+		message          Message
+		expectedContains []string
+		minLines         int
+	}{
+		{
+			name: "user message",
+			message: Message{
+				Role:    "user",
+				Content: "Hello, world!",
+				Time:    testTime,
+			},
+			expectedContains: []string{"User", "14:30:45", "Hello, world!"},
+			minLines:         3, // header + content + spacing
+		},
+		{
+			name: "assistant message",
+			message: Message{
+				Role:    "assistant",
+				Content: "Hi there! How can I help you?",
+				Time:    testTime,
+			},
+			expectedContains: []string{"Assistant", "14:30:45", "Hi there!"},
+			minLines:         3, // header + content + spacing
+		},
+		{
+			name: "long message with wrapping",
+			message: Message{
+				Role:    "user",
+				Content: strings.Repeat("This is a very long message that should wrap across multiple lines when displayed in the terminal. ", 5),
+				Time:    testTime,
+			},
+			expectedContains: []string{"User", "14:30:45"},
+			minLines:         5, // header + multiple content lines + spacing (adjusted expectation)
+		},
+		{
+			name: "empty message",
+			message: Message{
+				Role:    "assistant",
+				Content: "",
+				Time:    testTime,
+			},
+			expectedContains: []string{"Assistant", "14:30:45"},
+			minLines:         3, // header + empty content + spacing
+		},
+		{
+			name: "message with newlines",
+			message: Message{
+				Role:    "user",
+				Content: "Line 1\nLine 2\nLine 3",
+				Time:    testTime,
+			},
+			expectedContains: []string{"User", "14:30:45", "Line 1", "Line 2", "Line 3"},
+			minLines:         3, // header + content (may be wrapped differently) + spacing (adjusted expectation)
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			lines := model.formatMessage(tt.message)
+
+			if len(lines) < tt.minLines {
+				t.Errorf("Expected at least %d lines, got %d", tt.minLines, len(lines))
+			}
+
+			// Join all lines to check for expected content
+			allContent := strings.Join(lines, " ")
+
+			for _, expected := range tt.expectedContains {
+				if !strings.Contains(allContent, expected) {
+					t.Errorf("Formatted message should contain %q, got: %s", expected, allContent)
+				}
+			}
+
+			// Last line should be empty (spacing)
+			if len(lines) > 0 && lines[len(lines)-1] != "" {
+				t.Error("Last line should be empty for spacing")
+			}
+		})
+	}
+}
+
+func TestModel_GetSystemPromptHeight(t *testing.T) {
+	config := &configuration.Config{
+		ChatModel:      "test-model",
+		EmbeddingModel: "test-embedding",
+		OllamaURL:      "http://localhost:11434",
+	}
+	ctx := context.Background()
+	model := NewModel(ctx, config)
+	model.width = 80
+	model.height = 24
+
+	// Test when system prompt is not shown
+	model.showSystemPrompt = false
+	height := model.getSystemPromptHeight()
+	if height != 0 {
+		t.Errorf("Hidden system prompt should have height 0, got %d", height)
+	}
+
+	// Test when system prompt is shown
+	model.showSystemPrompt = true
+	model.sessionSystemPrompt = "You are a helpful assistant."
+	height = model.getSystemPromptHeight()
+	if height <= 0 {
+		t.Error("Visible system prompt should have positive height")
+	}
+
+	// Test with very long system prompt (should be limited)
+	model.sessionSystemPrompt = strings.Repeat("This is a very long system prompt that should be limited in height. ", 20)
+	longHeight := model.getSystemPromptHeight()
+	maxAllowedHeight := model.height / 3
+	if longHeight > maxAllowedHeight {
+		t.Errorf("System prompt height should be limited to %d, got %d", maxAllowedHeight, longHeight)
+	}
+
+	// Test edit mode
+	model.systemPromptEditMode = true
+	model.systemPromptEditor = "Editing system prompt..."
+	editHeight := model.getSystemPromptHeight()
+	if editHeight <= 0 {
+		t.Error("System prompt in edit mode should have positive height")
+	}
+}
+
+func TestModel_RenderSystemPrompt(t *testing.T) {
+	config := &configuration.Config{
+		ChatModel:      "test-model",
+		EmbeddingModel: "test-embedding",
+		OllamaURL:      "http://localhost:11434",
+	}
+	ctx := context.Background()
+	model := NewModel(ctx, config)
+	model.width = 80
+	model.height = 24
+	model.styles = DefaultStyles()
+
+	// Test when system prompt is not shown
+	model.showSystemPrompt = false
+	result := model.renderSystemPrompt()
+	if result != "" {
+		t.Error("Hidden system prompt should render empty string")
+	}
+
+	// Test display mode
+	model.showSystemPrompt = true
+	model.systemPromptEditMode = false
+	model.sessionSystemPrompt = "You are a helpful assistant."
+	result = model.renderSystemPrompt()
+	if result == "" {
+		t.Error("Visible system prompt should render non-empty content")
+	}
+	if !strings.Contains(result, "System Prompt") {
+		t.Error("Rendered system prompt should contain header")
+	}
+	if !strings.Contains(result, "helpful assistant") {
+		t.Error("Rendered system prompt should contain the prompt content")
+	}
+
+	// Test edit mode
+	model.systemPromptEditMode = true
+	model.systemPromptEditor = "You are an AI assistant."
+	result = model.renderSystemPrompt()
+	if result == "" {
+		t.Error("System prompt in edit mode should render non-empty content")
+	}
+	if !strings.Contains(result, "EDITING") {
+		t.Error("Edit mode should show editing indicator")
+	}
+	if !strings.Contains(result, "AI assistant") {
+		t.Error("Edit mode should show editor content")
+	}
+
+	// Test empty system prompt
+	model.systemPromptEditMode = false
+	model.sessionSystemPrompt = ""
+	result = model.renderSystemPrompt()
+	if !strings.Contains(result, "No system prompt") {
+		t.Error("Empty system prompt should show appropriate message")
+	}
+
+	// Test empty system prompt in edit mode
+	model.systemPromptEditMode = true
+	model.systemPromptEditor = ""
+	result = model.renderSystemPrompt()
+	if result == "" {
+		t.Error("Empty system prompt in edit mode should still render")
+	}
+
+	// Test very long system prompt (should be truncated)
+	model.systemPromptEditMode = false
+	model.sessionSystemPrompt = strings.Repeat("Very long system prompt content. ", 100)
+	result = model.renderSystemPrompt()
+	if result == "" {
+		t.Error("Long system prompt should render")
+	}
+}
+
+// Test Message Handling Functions
+func TestModel_SendMessageMsg(t *testing.T) {
+	config := &configuration.Config{
+		ChatModel:      "test-model",
+		EmbeddingModel: "test-embedding",
+		OllamaURL:      "http://localhost:11434",
+	}
+	ctx := context.Background()
+	model := NewModel(ctx, config)
+
+	// Test sendMessageMsg handling
+	msg := sendMessageMsg{message: "Hello, test!"}
+	updatedModel, cmd := model.Update(msg)
+
+	// Should return the model and a command
+	if updatedModel == nil {
+		t.Error("Update should return a model")
+	}
+
+	if cmd == nil {
+		t.Error("sendMessageMsg should return a command")
+	}
+
+	// Model should be unchanged immediately (async operation)
+	newModel := updatedModel.(Model)
+	if len(newModel.messages) != len(model.messages) {
+		t.Error("Messages should not be immediately modified by sendMessageMsg")
+	}
+}
+
+func TestModel_ResponseMsg_Success(t *testing.T) {
+	config := &configuration.Config{
+		ChatModel:      "test-model",
+		EmbeddingModel: "test-embedding",
+		OllamaURL:      "http://localhost:11434",
+	}
+	ctx := context.Background()
+	model := NewModel(ctx, config)
+
+	// Set loading state
+	model.inputModel.SetLoading(true)
+	initialMessageCount := len(model.messages)
+
+	// Test successful response
+	msg := responseMsg{content: "Hello, this is a response!", err: nil}
+	updatedModel, cmd := model.Update(msg)
+
+	newModel := updatedModel.(Model)
+
+	// Should add assistant message
+	if len(newModel.messages) != initialMessageCount+1 {
+		t.Errorf("Expected %d messages, got %d", initialMessageCount+1, len(newModel.messages))
+	}
+
+	// Check the added message
+	if len(newModel.messages) > 0 {
+		lastMessage := newModel.messages[len(newModel.messages)-1]
+		if lastMessage.Role != "assistant" {
+			t.Errorf("Expected assistant message, got %s", lastMessage.Role)
+		}
+		if lastMessage.Content != "Hello, this is a response!" {
+			t.Errorf("Expected specific content, got %s", lastMessage.Content)
+		}
+	}
+
+	// Should clear loading state
+	if newModel.inputModel.IsLoading() {
+		t.Error("Loading state should be cleared")
+	}
+
+	// Should invalidate cache and update flags
+	if !newModel.messagesNeedsUpdate {
+		t.Error("messagesNeedsUpdate should be set")
+	}
+
+	if !newModel.statusNeedsUpdate {
+		t.Error("statusNeedsUpdate should be set")
+	}
+
+	// Command should be nil (no further actions needed)
+	if cmd != nil {
+		t.Error("Successful response should not return additional commands")
+	}
+}
+
+func TestModel_ResponseMsg_Error(t *testing.T) {
+	config := &configuration.Config{
+		ChatModel:      "test-model",
+		EmbeddingModel: "test-embedding",
+		OllamaURL:      "http://localhost:11434",
+	}
+	ctx := context.Background()
+	model := NewModel(ctx, config)
+
+	// Set loading state
+	model.inputModel.SetLoading(true)
+	initialMessageCount := len(model.messages)
+
+	// Test error response
+	testError := fmt.Errorf("connection failed")
+	msg := responseMsg{content: "", err: testError}
+	updatedModel, _ := model.Update(msg)
+
+	newModel := updatedModel.(Model)
+
+	// Should add error message
+	if len(newModel.messages) != initialMessageCount+1 {
+		t.Errorf("Expected %d messages, got %d", initialMessageCount+1, len(newModel.messages))
+	}
+
+	// Check the added error message
+	if len(newModel.messages) > 0 {
+		lastMessage := newModel.messages[len(newModel.messages)-1]
+		if lastMessage.Role != "assistant" {
+			t.Errorf("Expected assistant message, got %s", lastMessage.Role)
+		}
+		if !strings.Contains(lastMessage.Content, "Error:") {
+			t.Errorf("Expected error message to contain 'Error:', got %s", lastMessage.Content)
+		}
+		if !strings.Contains(lastMessage.Content, "connection failed") {
+			t.Errorf("Expected error message to contain error details, got %s", lastMessage.Content)
+		}
+	}
+
+	// Should clear loading state
+	if newModel.inputModel.IsLoading() {
+		t.Error("Loading state should be cleared")
+	}
+}
+
+func TestModel_RAGStatusMsg(t *testing.T) {
+	config := &configuration.Config{
+		ChatModel:      "test-model",
+		EmbeddingModel: "test-embedding",
+		OllamaURL:      "http://localhost:11434",
+	}
+	ctx := context.Background()
+	model := NewModel(ctx, config)
+
+	// Test RAG status message
+	msg := ragStatusMsg{status: "Querying documents..."}
+	updatedModel, cmd := model.Update(msg)
+
+	newModel := updatedModel.(Model)
+
+	// Should not add messages
+	if len(newModel.messages) != len(model.messages) {
+		t.Error("RAG status message should not add messages")
+	}
+
+	// Should not return additional commands
+	if cmd != nil {
+		t.Error("RAG status message should not return commands")
+	}
+
+	// The RAG status should be set on the input model
+	// (We can't easily verify this without exposing internal state)
+}
+
+func TestModel_MessageProcessing_Integration(t *testing.T) {
+	config := &configuration.Config{
+		ChatModel:      "test-model",
+		EmbeddingModel: "test-embedding",
+		OllamaURL:      "http://localhost:11434",
+	}
+	ctx := context.Background()
+	model := NewModel(ctx, config)
+
+	// Simulate a full message exchange
+	initialMessageCount := len(model.messages)
+
+	// 1. Send a message
+	sendMsg := sendMessageMsg{message: "Test question"}
+	updatedModel, cmd := model.Update(sendMsg)
+	model = updatedModel.(Model)
+	if cmd == nil {
+		t.Error("Send message should return a command")
+	}
+
+	// 2. Receive a response
+	respMsg := responseMsg{content: "Test answer", err: nil}
+	updatedModel, _ = model.Update(respMsg)
+	model = updatedModel.(Model)
+
+	// Should have added the assistant response
+	if len(model.messages) != initialMessageCount+1 {
+		t.Errorf("Expected %d messages after response, got %d", initialMessageCount+1, len(model.messages))
+	}
+
+	// 3. Test error scenario
+	errorMsg := responseMsg{content: "", err: fmt.Errorf("network error")}
+	updatedModel, _ = model.Update(errorMsg)
+	model = updatedModel.(Model)
+
+	// Should have added the error message
+	if len(model.messages) != initialMessageCount+2 {
+		t.Errorf("Expected %d messages after error, got %d", initialMessageCount+2, len(model.messages))
+	}
+
+	// Verify the last message is an error
+	if len(model.messages) > 0 {
+		lastMessage := model.messages[len(model.messages)-1]
+		if !strings.Contains(lastMessage.Content, "Error:") {
+			t.Error("Last message should be an error message")
+		}
 	}
 }

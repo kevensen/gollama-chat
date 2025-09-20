@@ -95,24 +95,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 	case tea.KeyMsg:
-		// ULTRA-FAST PATH: Handle ASCII input with proper encapsulation
-		if m.activeTab == ChatTab {
-			// Handle space character specifically
-			if msg.String() == " " {
-				if m.chatModel.HandleFastInputChar(' ') {
-					return m, nil
-				}
-			}
-
-			// Use Runes directly for other ASCII characters
-			if msg.Type == tea.KeyRunes && len(msg.Runes) == 1 {
-				char := msg.Runes[0]
-				if m.chatModel.HandleFastInputChar(char) {
-					return m, nil
-				}
-			}
-		}
-
 		switch msg.String() {
 		case "ctrl+c", "q":
 			return m, tea.Quit

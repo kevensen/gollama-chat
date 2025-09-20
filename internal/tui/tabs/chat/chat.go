@@ -652,34 +652,3 @@ func (m *Model) getCachedModelContextSize() int {
 func (m Model) GetRAGService() *rag.Service {
 	return m.ragService
 }
-
-// HandleFastInputChar handles ASCII input characters with zero overhead
-// Returns true if the character was handled (fast path), false if normal processing should continue
-func (m *Model) HandleFastInputChar(char rune) bool {
-	// Only handle ASCII printable characters
-	if char < 32 || char > 126 {
-		return false
-	}
-
-	// Don't handle input if loading
-	if m.inputModel.IsLoading() {
-		return false
-	}
-
-	// DEBUG: Log character input and current state
-	debugLog(fmt.Sprintf("HandleFastInputChar: char='%c', systemPromptEditMode=%t, showSystemPrompt=%t", char, m.systemPromptEditMode, m.showSystemPrompt))
-
-	// Check if we're in system prompt edit mode
-	if m.systemPromptEditMode {
-		// Handle text input for system prompt editing
-		debugLog(fmt.Sprintf("HandleFastInputChar: Adding '%c' to system prompt editor", char))
-		m.systemPromptEditor += string(char)
-		m.systemPromptNeedsUpdate = true
-		return true
-	}
-
-	// Direct character insertion to input model with zero overhead
-	debugLog(fmt.Sprintf("HandleFastInputChar: Adding '%c' to input model", char))
-	m.inputModel.InsertCharacterDirect(char)
-	return true
-}

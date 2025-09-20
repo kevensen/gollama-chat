@@ -131,8 +131,29 @@ make dev  # Runs fmt, vet, test, and build
 ### Testing
 
 ```bash
+# Run all tests
 make test
+
+# Run tests with coverage report
+make test-coverage
+
+# Run performance regression tests
+make test-performance
+
+# Run input component benchmarks
+make test-input-bench
 ```
+
+#### Performance Testing
+
+The project includes comprehensive performance testing to prevent input latency regressions:
+
+- **Input Performance**: Benchmarks for typing responsiveness and character insertion
+- **Regression Prevention**: Automated performance threshold monitoring
+- **Memory Profiling**: Allocation pattern analysis and optimization
+- **Real-world Scenarios**: Complex editing and Unicode handling tests
+
+See [`internal/tui/tabs/chat/input/PERFORMANCE_TESTING.md`](internal/tui/tabs/chat/input/PERFORMANCE_TESTING.md) for detailed performance testing documentation.
 
 ## Architecture
 

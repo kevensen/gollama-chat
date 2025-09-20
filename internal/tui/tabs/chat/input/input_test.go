@@ -362,3 +362,37 @@ func TestModel_LoadingBehavior(t *testing.T) {
 		t.Logf("Update when not loading: value remained %q (this may be expected behavior)", updatedModel2.Value())
 	}
 }
+
+func TestModel_SpaceKeyHandling(t *testing.T) {
+	model := NewModel()
+
+	// Test space key message (tea.KeySpace)
+	spaceMsg := tea.KeyMsg{Type: tea.KeySpace}
+
+	// Initial state should be empty
+	if model.Value() != "" {
+		t.Errorf("Initial value should be empty, got %q", model.Value())
+	}
+
+	// Update with space key
+	updatedModel, _ := model.Update(spaceMsg)
+
+	// Should have added a space character
+	if updatedModel.Value() != " " {
+		t.Errorf("After space key, value should be \" \", got %q", updatedModel.Value())
+	}
+
+	// Test multiple spaces
+	updatedModel2, _ := updatedModel.Update(spaceMsg)
+	if updatedModel2.Value() != "  " {
+		t.Errorf("After two space keys, value should be \"  \", got %q", updatedModel2.Value())
+	}
+
+	// Test space after text (SetValue positions cursor at end automatically)
+	model.SetValue("hello")
+
+	updatedModel3, _ := model.Update(spaceMsg)
+	if updatedModel3.Value() != "hello " {
+		t.Errorf("After adding space to \"hello\", value should be \"hello \", got %q", updatedModel3.Value())
+	}
+}
