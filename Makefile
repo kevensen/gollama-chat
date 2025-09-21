@@ -1,6 +1,6 @@
 # Makefile for gollama-chat
 
-.PHONY: build run clean test test-coverage test-short test-verbose test-bench fmt vet deps dev
+.PHONY: build run web clean test test-coverage test-short test-verbose test-bench fmt vet deps dev
 
 # Variables
 BINARY_NAME=gollama-chat
@@ -22,6 +22,12 @@ build:
 run: build
 	@echo "Running $(BINARY_NAME)..."
 	./$(BUILD_DIR)/$(BINARY_NAME)
+
+# Run the application in web mode
+web: build
+	@echo "Running $(BINARY_NAME) in web mode on port 8080..."
+	@echo "Open your browser to http://localhost:8080"
+	./$(BUILD_DIR)/$(BINARY_NAME) -webport 8080
 
 # Clean build artifacts
 clean:
@@ -116,6 +122,7 @@ help:
 	@echo "Available targets:"
 	@echo "  build    - Build the application"
 	@echo "  run      - Build and run the application"
+	@echo "  web      - Build and run the application in web mode (port 8080)"
 	@echo "  clean    - Clean build artifacts"
 	@echo "  test     - Run tests"
 	@echo "  fmt      - Format code"
