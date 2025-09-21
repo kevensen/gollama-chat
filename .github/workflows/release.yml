@@ -1,0 +1,109 @@
+name: Build and Release Binaries
+
+on:
+  release:
+    types: [published]
+
+jobs:
+  build:
+    name: Build Binaries
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          # Windows
+          - goos: windows
+            goarch: amd64
+            binary_suffix: .exe
+          - goos: windows
+            goarch: arm64
+            binary_suffix: .exe
+          - goos: windows
+            goarch: "386"
+            binary_suffix: .exe
+          
+          # Linux
+          - goos: linux
+            goarch: amd64
+            binary_suffix: ""
+          - goos: linux
+            goarch: arm64
+            binary_suffix: ""
+          - goos: linux
+            goarch: arm
+            goarm: "7"
+            binary_suffix: ""
+          - goos: linux
+            goarch: "386"
+            binary_suffix: ""
+          
+          # macOS
+          - goos: darwin
+            goarch: amd64
+            binary_suffix: ""
+          - goos: darwin
+            goarch: arm64
+            binary_suffix: ""
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Go
+      uses: actions/setup-go@v5
+      with:
+        go-version: '1.24.4'
+
+    - name: Get dependencies
+      run: go mod download
+
+    - name: Set binary name
+      id: binary_name
+      run: |
+        BINARY_NAME="gollama-chat-${{ matrix.goos }}-${{ matrix.goarch }}"
+        if [ "${{ matrix.goos }}" = "linux" ] && [ "${{ matrix.goarch }}" = "arm" ]; then
+          BINARY_NAME="gollama-chat-${{ matrix.goos }}-${{ matrix.goarch }}v${{ matrix.goarm }}"
+        fi
+        echo "binary_name=${BINARY_NAME}${{ matrix.binary_suffix }}" >> $GITHUB_OUTPUT
+        echo "archive_name=${BINARY_NAME}" >> $GITHUB_OUTPUT
+
+    - name: Build binary
+      env:
+        GOOS: ${{ matrix.goos }}
+        GOARCH: ${{ matrix.goarch }}
+        GOARM: ${{ matrix.goarm }}
+        CGO_ENABLED: 0
+      run: |
+        mkdir -p dist
+        go build -ldflags="-s -w" -o dist/${{ steps.binary_name.outputs.binary_name }} ./cmd
+
+    - name: Create archive
+      run: |
+        cd dist
+        if [ "${{ matrix.goos }}" = "windows" ]; then
+          zip ../${{ steps.binary_name.outputs.archive_name }}.zip ${{ steps.binary_name.outputs.binary_name }}
+        else
+          tar -czf ../${{ steps.binary_name.outputs.archive_name }}.tar.gz ${{ steps.binary_name.outputs.binary_name }}
+        fi
+
+    - name: Upload release asset (ZIP)
+      if: matrix.goos == 'windows'
+      uses: actions/upload-release-asset@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        upload_url: ${{ github.event.release.upload_url }}
+        asset_path: ./${{ steps.binary_name.outputs.archive_name }}.zip
+        asset_name: ${{ steps.binary_name.outputs.archive_name }}.zip
+        asset_content_type: application/zip
+
+    - name: Upload release asset (TAR.GZ)
+      if: matrix.goos != 'windows'
+      uses: actions/upload-release-asset@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        upload_url: ${{ github.event.release.upload_url }}
+        asset_path: ./${{ steps.binary_name.outputs.archive_name }}.tar.gz
+        asset_name: ${{ steps.binary_name.outputs.archive_name }}.tar.gz
+        asset_content_type: application/gzip
