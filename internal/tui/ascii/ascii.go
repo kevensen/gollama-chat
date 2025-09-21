@@ -1,4 +1,4 @@
-package tui
+package ascii
 
 const ascii = `                    
       :+********************************#*=.      
@@ -25,7 +25,7 @@ const ascii = `
      :*##############*#+#+*##***#+#########+.     
        .-=++++++++++++++++++++++++++++++=:`
 
-// GetASCII returns the ASCII art for display in the chat when no messages are present
-func GetASCII() string {
+// Draw returns the ASCII art for display in the chat when no messages are present
+func Draw() string {
 	return ascii
 }

@@ -1,4 +1,4 @@
-package tui
+package core
 
 import (
 	"context"
@@ -220,26 +220,46 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 // View renders the TUI
 func (m Model) View() string {
-	// For very small terminals, prioritize tabs and minimal content
-	if m.height < 3 {
-		// In extreme cases, just show tabs
+	// VISIBILITY PRIORITY: Always ensure tabs and footer are visible
+	// Priority 1: Tab bar (always gets 1 line)
+	tabBar := m.renderTabBar()
+
+	// Priority 2: Footer/toolbar (always gets 1 line)
+	footer := m.renderFooter()
+
+	// For extremely small terminals, just show tabs and footer
+	if m.height <= 2 {
 		if m.height == 1 {
-			return m.renderTabBar()
+			// Only room for tabs
+			return tabBar
 		}
-		// With 2 lines, show tabs and minimal content
 		if m.height == 2 {
-			tabBar := m.renderTabBar()
-			return lipgloss.JoinVertical(lipgloss.Left, tabBar, "...")
+			// Room for tabs + footer
+			return lipgloss.JoinVertical(lipgloss.Left, tabBar, footer)
 		}
 	}
 
-	// Tab bar
-	tabBar := m.renderTabBar()
+	// Calculate remaining space for content after reserving space for tabs and footer
+	tabBarHeight := 1 // Always reserve 1 line for tabs
+	footerHeight := 1 // Always reserve 1 line for footer
+	contentHeight := m.height - tabBarHeight - footerHeight
 
-	// Content area
+	// If no room for content, show minimal placeholder
+	if contentHeight < 1 {
+		return lipgloss.JoinVertical(lipgloss.Left, tabBar, footer)
+	}
+
+	// Content area - gets whatever space is left after tabs and footer
+	// Update the active model with the correct content height first
 	var content string
 	switch m.activeTab {
 	case ChatTab:
+		// Update chat model with constrained height for proper layout
+		chatModel, _ := m.chatModel.Update(tea.WindowSizeMsg{
+			Width:  m.width,
+			Height: contentHeight + 2, // Add 2 for tabs and footer that chat model accounts for
+		})
+		m.chatModel = chatModel.(chat.Model)
 		content = m.chatModel.View()
 	case ConfigTab:
 		content = m.configModel.View()
@@ -247,26 +267,11 @@ func (m Model) View() string {
 		content = m.ragModel.View()
 	}
 
-	// Footer with help
-	footer := m.renderFooter()
-
-	// Calculate available height for content with minimum constraints
-	tabBarHeight := 1 // Always reserve 1 line for tabs
-	footerHeight := 1 // Always reserve 1 line for footer
-
-	// Calculate content height, ensuring it's never negative
-	contentHeight := m.height - tabBarHeight - footerHeight
-	if contentHeight < 1 {
-		contentHeight = 1 // Ensure at least 1 line for content
-	}
-
-	// For chat tab, don't apply height constraint as it manages its own layout
-	// For config and RAG tabs, let them handle their own full height
+	// Style content to fit available space
 	var styledContent string
 	if m.activeTab == ChatTab {
-		// Chat tab uses its own layout management
+		// Chat tab now manages its own height correctly, just ensure width
 		contentStyle := lipgloss.NewStyle().
-			Height(contentHeight).
 			Width(m.width)
 		styledContent = contentStyle.Render(content)
 	} else {
@@ -274,7 +279,7 @@ func (m Model) View() string {
 		styledContent = content
 	}
 
-	// Return the main content without complex centering
+	// Return the layout with guaranteed tab and footer visibility
 	return lipgloss.JoinVertical(
 		lipgloss.Left,
 		tabBar,
@@ -297,10 +302,20 @@ func (m Model) renderTabBar() string {
 		Foreground(lipgloss.Color("7")). // Light gray
 		Background(lipgloss.Color("0"))  // Black
 
-	// Create compact tab names for minimal space scenarios
-	tabNames := []string{"Chat", "Config", "RAG"}
-	if m.width < 30 {
-		tabNames = []string{"C", "S", "R"} // Single letter tabs for very narrow terminals
+	// Create compact tab names based on available width for maximum visibility
+	var tabNames []string
+	if m.width >= 25 {
+		// Full tab names for reasonable width
+		tabNames = []string{"Chat", "Settings", "RAG Collections"}
+	} else if m.width >= 10 {
+		// Short names for narrow terminals
+		tabNames = []string{"C", "S", "R"}
+	} else if m.width >= 6 {
+		// Ultra-compact for very narrow terminals
+		tabNames = []string{"C", "S", "R"}
+	} else {
+		// Minimal representation for extremely narrow terminals (width 2-5)
+		tabNames = []string{"C"}
 	}
 
 	for i, tab := range tabNames {
@@ -308,7 +323,14 @@ func (m Model) renderTabBar() string {
 			break // Safety check
 		}
 
-		tabText := " " + tab + " " // Add minimal spacing
+		// Adjust spacing based on available width
+		var tabText string
+		if m.width >= 10 {
+			tabText = " " + tab + " " // Normal spacing
+		} else {
+			tabText = tab // No spacing for very narrow terminals
+		}
+
 		if Tab(i) == m.activeTab {
 			tabs = append(tabs, activeTabStyle.Render(tabText))
 		} else {
@@ -316,10 +338,19 @@ func (m Model) renderTabBar() string {
 		}
 	}
 
-	// Always ensure we have content to render
+	// Always ensure we have content to render with progressive fallbacks
 	tabContent := lipgloss.JoinHorizontal(lipgloss.Top, tabs...)
 	if tabContent == "" {
-		tabContent = " Chat Settings RAG " // Fallback content
+		// Progressive fallbacks for extreme cases
+		if m.width >= 15 {
+			tabContent = "Chat Settings RAG"
+		} else if m.width >= 7 {
+			tabContent = "C S R"
+		} else if m.width >= 3 {
+			tabContent = "CSR"
+		} else {
+			tabContent = "C" // Absolute minimum
+		}
 	}
 
 	// Create a simple style that guarantees visibility
@@ -337,24 +368,34 @@ func (m Model) renderFooter() string {
 		Background(lipgloss.Color("235")).
 		Width(m.width)
 
-	// Simplified help text for small terminals
-	helpText := "Tab: Switch • Ctrl+C: Quit"
-
-	// Add more detailed help only if we have enough width
-	if m.width > 50 {
+	// Progressive help text based on available width for maximum visibility
+	var helpText string
+	if m.width >= 80 {
+		// Full help with tab-specific commands
 		helpText = "Tab/Shift+Tab: Switch tabs • Ctrl+C/q: Quit"
-
-		// Add tab-specific help only for wider terminals
-		if m.width > 80 {
-			switch m.activeTab {
-			case ChatTab:
-				helpText += " • Enter: Send • ↑/↓: Scroll • Ctrl+S: System Prompt"
-			case ConfigTab:
-				helpText += " • Enter: Edit • Esc: Cancel"
-			case RAGTab:
-				helpText += " • Space: Toggle • ↑/↓: Navigate • R: Refresh"
-			}
+		switch m.activeTab {
+		case ChatTab:
+			helpText += " • Enter: Send • ↑/↓: Scroll • Ctrl+S: System Prompt"
+		case ConfigTab:
+			helpText += " • Enter: Edit • Esc: Cancel"
+		case RAGTab:
+			helpText += " • Space: Toggle • ↑/↓: Navigate • R: Refresh"
 		}
+	} else if m.width >= 50 {
+		// Medium detail
+		helpText = "Tab/Shift+Tab: Switch tabs • Ctrl+C/q: Quit"
+	} else if m.width >= 25 {
+		// Basic help
+		helpText = "Tab: Switch • Ctrl+C: Quit"
+	} else if m.width >= 15 {
+		// Minimal help
+		helpText = "Tab:Switch Q:Quit"
+	} else if m.width >= 8 {
+		// Ultra-minimal
+		helpText = "Tab Q"
+	} else {
+		// Extremely narrow - just show essential
+		helpText = "Tab"
 	}
 
 	return footerStyle.Render(helpText)

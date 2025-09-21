@@ -3,7 +3,7 @@ package chat
 import (
 	"strings"
 
-	"github.com/kevensen/gollama-chat/internal/tui"
+	"github.com/kevensen/gollama-chat/internal/tui/ascii"
 )
 
 // MessageCache stores precomputed message renders to avoid recalculations
@@ -99,7 +99,7 @@ func (c *MessageCache) RenderAllMessages(model *Model) string {
 		// ASCII art has approximately 25 lines and needs at least 60 characters width
 		if availableHeight >= 30 && model.width >= 65 {
 			// Display ASCII art when pane is large enough
-			asciiArt := tui.GetASCII()
+			asciiArt := ascii.Draw()
 			return messageStyle.Render(emptyStyle.Render(asciiArt))
 		} else {
 			// Display default message when pane is too small

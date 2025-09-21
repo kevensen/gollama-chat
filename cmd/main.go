@@ -9,7 +9,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/kevensen/gollama-chat/internal/configuration"
-	"github.com/kevensen/gollama-chat/internal/tui/tui"
+	"github.com/kevensen/gollama-chat/internal/tui/core"
 )
 
 func main() {
@@ -22,7 +22,7 @@ func main() {
 	}
 
 	// Create TUI model
-	model := tui.NewModel(ctx, config)
+	model := core.NewModel(ctx, config)
 
 	// Create Bubble Tea program with balanced performance optimizations
 	program := tea.NewProgram(
