@@ -6,7 +6,10 @@
 
 A text user interface (TUI) for chatting with Large Language Models via Ollama.
 
-![Chat Interface](screenshot.png)
+<div align="center">
+  <img src="images/Screenshot.png" alt="Icon" width="800"/>
+</div>
+
 
 ## Features
 
@@ -53,10 +56,15 @@ The application stores its configuration in:
 Default configuration:
 ```json
 {
-  "ollama_url": "http://localhost:11434",
-  "default_model": "llama3.2",
-  "max_tokens": 2048,
-  "temperature": 0.7
+  "chatModel": "llama3.3:latest",
+  "embeddingModel": "embeddinggemma:latest",
+  "ragEnabled": true,
+  "ollamaURL": "http://localhost:11434",
+  "chromaDBURL": "http://localhost:8000",
+  "chromaDBDistance": 1.0,
+  "maxDocuments": 5,
+  "selectedCollections": {},
+  "defaultSystemPrompt": "You are a helpful Q&A bot. Your purpose is to provide direct, accurate answers to user questions. When providing lists of items (such as countries, capitals, features, etc.), format your response using proper numbered or bulleted lists. Be consistent in your formatting. If you don't know the answer, state that you are unable to provide a response."
 }
 ```
 
@@ -84,10 +92,15 @@ Default configuration:
 
 | Setting | Description | Default |
 |---------|-------------|---------|
-| `ollama_url` | URL of the Ollama server | `http://localhost:11434` |
-| `default_model` | Model to use for chat | `llama3.2` |
-| `max_tokens` | Maximum tokens for responses | `2048` |
-| `temperature` | Creativity level (0.0-2.0) | `0.7` |
+| `chatModel` | Model to use for chat | `llama3.3:latest` |
+| `embeddingModel` | Model to use for embeddings in RAG | `embeddinggemma:latest` |
+| `ragEnabled` | Enable RAG (Retrieval Augmented Generation) | `true` |
+| `ollamaURL` | URL of the Ollama server | `http://localhost:11434` |
+| `chromaDBURL` | URL of the ChromaDB server | `http://localhost:8000` |
+| `chromaDBDistance` | Distance threshold for similarity search | `1.0` |
+| `maxDocuments` | Maximum documents to retrieve for RAG | `5` |
+| `selectedCollections` | Selected collections for RAG queries | `{}` |
+| `defaultSystemPrompt` | Default system prompt for conversations | (See configuration example) |
 
 ## Project Structure
 
@@ -97,18 +110,53 @@ gollama-chat/
 │   └── main.go                 # Application entry point
 ├── internal/
 │   ├── configuration/          # Configuration management
-│   │   └── configuration.go
+│   │   ├── configuration.go
+│   │   └── models/
+│   │       └── models.go
+│   ├── rag/                    # RAG (Retrieval Augmented Generation)
+│   │   ├── service.go
+│   │   └── service_test.go
 │   └── tui/                    # Text User Interface
-│       ├── tui/
-│       │   └── tui.go         # Main TUI controller
-│       └── tabs/              # Tab implementations
-│           ├── chat/
-│           │   └── chat.go    # Chat functionality
-│           └── configuration/
-│               └── configuration.go # Settings tab
+│       ├── ascii/
+│       │   └── ascii.go
+│       ├── core/
+│       │   ├── tui.go         # Main TUI controller
+│       │   ├── tui_test.go
+│       │   └── height_31_test.go
+│       ├── tabs/              # Tab implementations
+│       │   ├── chat/
+│       │   │   ├── chat.go    # Chat functionality
+│       │   │   ├── chat_test.go
+│       │   │   ├── messages.go
+│       │   │   ├── message_cache.go
+│       │   │   ├── model_context.go
+│       │   │   ├── styles.go
+│       │   │   ├── system_prompt.go
+│       │   │   ├── token_counts.go
+│       │   │   └── input/
+│       │   │       ├── input.go
+│       │   │       ├── input_test.go
+│       │   │       └── PERFORMANCE_TESTING.md
+│       │   ├── configuration/
+│       │   │   ├── configuration.go # Settings tab
+│       │   │   ├── models/
+│       │   │   └── utils/
+│       │   │       └── connection/
+│       │   └── rag/
+│       │       ├── rag.go
+│       │       ├── collections_service.go
+│       │       └── README.md
+│       └── util/
+│           ├── util.go
+│           └── util_test.go
+├── images/                    # Application images
+│   ├── Icon.png
+│   └── Screenshot.png
 ├── bin/                       # Built binaries
 ├── Makefile                   # Build automation
 ├── go.mod                     # Go module definition
+├── TESTING.md                 # Testing documentation
+├── TEST_COVERAGE_STRATEGY.md  # Coverage strategy
 └── README.md                  # This file
 ```
 
@@ -192,6 +240,5 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 - [ ] Multiple conversation support
 - [ ] Model switching during chat
 - [ ] Export conversations
-- [ ] ChromaDB integration for RAG
 - [ ] Streaming responses
-- [ ] Custom themes
+- [ ] MCP Integration
