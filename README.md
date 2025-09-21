@@ -1,5 +1,9 @@
 # gollama-chat
 
+<div align="center">
+  <img src="images/Icon.png" alt="Icon" width="200"/>
+</div>
+
 A text user interface (TUI) for chatting with Large Language Models via Ollama.
 
 ![Chat Interface](screenshot.png)
