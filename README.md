@@ -39,12 +39,51 @@ make build
 
 ### Starting the Application
 
+#### Terminal Mode (Default)
 ```bash
 # Run directly
 make run
 
 # Or run the binary
 ./bin/gollama-chat
+```
+
+#### Web Mode
+```bash
+# Run in web mode using make (default port 8080)
+make web
+
+# Or run the binary directly with custom port
+./bin/gollama-chat -webport 8080
+./bin/gollama-chat -webport 3000
+```
+
+Then open your browser to the specified port (e.g., `http://localhost:8080`) to access the TUI through a web terminal interface.
+
+**Web Mode Features:**
+- Access the full TUI interface through any modern web browser
+- Useful for remote access or when running in containerized environments  
+- All TUI features work identically in web mode
+- Built with custom WebSocket-based terminal emulation using xterm.js
+- No external dependencies required - completely self-contained
+
+### Command Line Options
+
+```bash
+gollama-chat [options]
+
+Options:
+  -h                Show help
+  -webport int      Run in web mode on specified port (e.g., -webport 8080)
+```
+
+Examples:
+```bash
+# Run in terminal mode (default)
+./gollama-chat
+
+# Run in web mode on port 8080
+./gollama-chat -webport 8080
 ```
 
 ### Configuration
