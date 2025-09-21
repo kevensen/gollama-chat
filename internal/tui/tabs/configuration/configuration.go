@@ -30,7 +30,6 @@ const (
 	ChromaDBURLField
 	ChromaDBDistanceField
 	MaxDocumentsField
-	DarkModeField
 )
 
 // Model represents the configuration tab model
@@ -62,7 +61,6 @@ func NewModel(config *configuration.Config) Model {
 		ChromaDBURL:         config.ChromaDBURL,
 		ChromaDBDistance:    config.ChromaDBDistance,
 		MaxDocuments:        config.MaxDocuments,
-		DarkMode:            config.DarkMode,
 		SelectedCollections: make(map[string]bool),
 		DefaultSystemPrompt: config.DefaultSystemPrompt,
 	}
@@ -174,7 +172,7 @@ func (m Model) handleNavigationKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 
 	case "down", "j":
-		if m.activeField < DarkModeField { // Updated to use actual last field
+		if m.activeField < MaxDocumentsField { // Updated to use actual last field
 			m.activeField++
 		}
 
@@ -379,7 +377,6 @@ func (m Model) renderConfigurationViewWithWidth(width int) string {
 		{ChromaDBURLField, "ChromaDB URL", m.editConfig.ChromaDBURL, "URL of the ChromaDB server"},
 		{ChromaDBDistanceField, "ChromaDB Distance", fmt.Sprintf("%.2f", m.editConfig.ChromaDBDistance), "Distance threshold for cosine similarity (0-2 range)"},
 		{MaxDocumentsField, "Max Documents", fmt.Sprintf("%d", m.editConfig.MaxDocuments), "Maximum documents for RAG"},
-		{DarkModeField, "Dark Mode", fmt.Sprintf("%t", m.editConfig.DarkMode), "Enable dark mode theme"},
 	}
 
 	for _, field := range fields {
@@ -520,8 +517,6 @@ func (m Model) getCurrentFieldValue() string {
 		return fmt.Sprintf("%.2f", m.editConfig.ChromaDBDistance)
 	case MaxDocumentsField:
 		return fmt.Sprintf("%d", m.editConfig.MaxDocuments)
-	case DarkModeField:
-		return fmt.Sprintf("%t", m.editConfig.DarkMode)
 	case DefaultSystemPromptField:
 		return m.editConfig.DefaultSystemPrompt
 	default:
@@ -582,13 +577,6 @@ func (m Model) setCurrentFieldValue(value string) error {
 			return fmt.Errorf("Max documents must be greater than 0")
 		}
 		m.editConfig.MaxDocuments = maxDocs
-
-	case DarkModeField:
-		darkMode, err := strconv.ParseBool(strings.TrimSpace(value))
-		if err != nil {
-			return fmt.Errorf("Dark mode must be true or false")
-		}
-		m.editConfig.DarkMode = darkMode
 
 	case DefaultSystemPromptField:
 		// Allow empty system prompt, but trim whitespace

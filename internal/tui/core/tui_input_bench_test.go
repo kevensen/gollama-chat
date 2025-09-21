@@ -19,7 +19,6 @@ func createBenchmarkConfig() *configuration.Config {
 		ChromaDBURL:         "http://localhost:8000",
 		ChromaDBDistance:    1.0,
 		MaxDocuments:        5,
-		DarkMode:            false,
 		SelectedCollections: make(map[string]bool),
 		DefaultSystemPrompt: "You are a helpful assistant.",
 	}

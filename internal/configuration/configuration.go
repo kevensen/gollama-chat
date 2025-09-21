@@ -17,7 +17,6 @@ type Config struct {
 	ChromaDBURL         string          `json:"chromaDBURL"`
 	ChromaDBDistance    float64         `json:"chromaDBDistance"`
 	MaxDocuments        int             `json:"maxDocuments"`
-	DarkMode            bool            `json:"darkMode"`
 	SelectedCollections map[string]bool `json:"selectedCollections"`
 	DefaultSystemPrompt string          `json:"defaultSystemPrompt"`
 }
@@ -32,7 +31,6 @@ func DefaultConfig() *Config {
 		ChromaDBURL:         "http://localhost:8000",
 		ChromaDBDistance:    1.0, // Updated for cosine similarity (0-2 range)
 		MaxDocuments:        5,
-		DarkMode:            false,
 		SelectedCollections: make(map[string]bool),
 		DefaultSystemPrompt: "You are a helpful Q&A bot. Your purpose is to provide direct, accurate answers to user questions. When providing lists of items (such as countries, capitals, features, etc.), format your response using proper numbered or bulleted lists. Be consistent in your formatting. If you don't know the answer, state that you are unable to provide a response.",
 	}

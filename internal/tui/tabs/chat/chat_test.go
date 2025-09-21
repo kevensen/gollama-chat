@@ -19,7 +19,6 @@ func TestNewModel(t *testing.T) {
 		ChromaDBURL:         "http://localhost:8000",
 		DefaultSystemPrompt: "You are a helpful assistant",
 		RAGEnabled:          true,
-		DarkMode:            false,
 		ChromaDBDistance:    1.0,
 		MaxDocuments:        10,
 		SelectedCollections: make(map[string]bool),

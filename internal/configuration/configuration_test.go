@@ -26,7 +26,6 @@ func TestConfig_Validate(t *testing.T) {
 				ChromaDBURL:         "",
 				ChromaDBDistance:    1.0,
 				MaxDocuments:        5,
-				DarkMode:            false,
 				SelectedCollections: make(map[string]bool),
 				DefaultSystemPrompt: "You are a helpful assistant.",
 			},
@@ -226,7 +225,6 @@ func TestDefaultConfig(t *testing.T) {
 		{"ChromaDBURL", config.ChromaDBURL, "http://localhost:8000"},
 		{"ChromaDBDistance", config.ChromaDBDistance, 1.0},
 		{"MaxDocuments", config.MaxDocuments, 5},
-		{"DarkMode", config.DarkMode, false},
 	}
 
 	for _, tt := range tests {
