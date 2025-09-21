@@ -2,6 +2,8 @@ package chat
 
 import (
 	"strings"
+
+	"github.com/kevensen/gollama-chat/internal/tui"
 )
 
 // MessageCache stores precomputed message renders to avoid recalculations
@@ -93,7 +95,16 @@ func (c *MessageCache) RenderAllMessages(model *Model) string {
 			Width(model.width - 4).     // Account for parent border and padding
 			Height(availableHeight - 2) // Account for parent border and padding
 
-		return messageStyle.Render(emptyStyle.Render("No messages yet. Type a message and press Enter to start chatting!"))
+		// Check if we have enough space to display ASCII art
+		// ASCII art has approximately 25 lines and needs at least 60 characters width
+		if availableHeight >= 30 && model.width >= 65 {
+			// Display ASCII art when pane is large enough
+			asciiArt := tui.GetASCII()
+			return messageStyle.Render(emptyStyle.Render(asciiArt))
+		} else {
+			// Display default message when pane is too small
+			return messageStyle.Render(emptyStyle.Render("No messages yet. Type a message and press Enter to start chatting!"))
+		}
 	}
 
 	var allLines []string

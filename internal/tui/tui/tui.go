@@ -3,14 +3,14 @@ package tui
 import (
 	"context"
 
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
-
 	"github.com/kevensen/gollama-chat/internal/configuration"
 	"github.com/kevensen/gollama-chat/internal/tui/tabs/chat"
 	configTab "github.com/kevensen/gollama-chat/internal/tui/tabs/configuration"
 	"github.com/kevensen/gollama-chat/internal/tui/tabs/configuration/utils/connection"
 	ragTab "github.com/kevensen/gollama-chat/internal/tui/tabs/rag"
+
+	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 )
 
 // Tab represents the different tabs in the application
