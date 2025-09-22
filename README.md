@@ -70,21 +70,37 @@ Then open your browser to `http://localhost:8080` to access the TUI through a we
 - All TUI features work identically in web mode
 
 #### Docker Mode
+
+##### Using Pre-built Images
+```bash
+# Use the latest pre-built image from GitHub Container Registry
+docker run -p 8080:8080 -v gollama-config:/home/appuser/.config/gollama ghcr.io/kevensen/gollama-chat:latest
+
+# Use docker compose with pre-built image
+docker compose up
+
+# Or see docker-compose.example.yml for a complete setup with Ollama
+docker compose -f docker-compose.example.yml up
+```
+
+##### Building Locally
 ```bash
 # Build and run with Docker
 docker build -t gollama-chat .
 docker run -p 8080:8080 -v gollama-config:/home/appuser/.config/gollama gollama-chat
 
-# Or use docker compose
+# Or use docker compose to build locally
 docker compose up --build
 ```
 
 **Docker Features:**
-- Alpine-based lightweight container
+- Multi-platform support (amd64, arm64)
+- Alpine-based lightweight container  
 - Built-in GoTTY web terminal on port 8080
 - Persistent configuration via volume mounts
 - Health checks included
 - Non-root user for security
+- Automated builds via GitHub Actions
 
 ### Command Line Options
 
@@ -374,6 +390,23 @@ docker run -p 8080:8080 \
 
 # Clean up Docker resources
 docker system prune -f
+```
+
+### Docker Registry & Multi-Platform Builds
+
+The project includes GitHub Actions workflows for automated multi-platform Docker builds to GitHub Container Registry. See [DOCKER-REGISTRY-SETUP.md](DOCKER-REGISTRY-SETUP.md) for detailed information on:
+
+- Understanding the automated build process
+- Using pre-built multi-platform images
+- Image tagging strategy
+- Troubleshooting builds
+
+**Quick start with pre-built images:**
+```bash
+# Use GitHub Container Registry (no setup required)
+docker run -p 8080:8080 ghcr.io/kevensen/gollama-chat:latest
+
+# Available platforms: linux/amd64, linux/arm64
 ```
 
 ### Local GoTTY Development

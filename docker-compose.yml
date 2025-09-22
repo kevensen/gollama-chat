@@ -1,6 +1,11 @@
 services:
   gollama-chat:
-    build: .
+    # Use pre-built multi-platform image (recommended)
+    image: ghcr.io/kevensen/gollama-chat:latest
+    
+    # Or build locally (uncomment the line below and comment out the image line above)
+    # build: .
+    
     environment:
       TERM: xterm-256color
     ports:
