@@ -48,24 +48,43 @@ make run
 ./bin/gollama-chat
 ```
 
-#### Web Mode
+#### Web Mode (using GoTTY)
 ```bash
-# Run in web mode using make (default port 8080)
-make web
+# Install GoTTY (one time setup)
+go install github.com/sorenisanerd/gotty@latest
 
-# Or run the binary directly with custom port
-./bin/gollama-chat -webport 8080
-./bin/gollama-chat -webport 3000
+# Run with GoTTY web terminal
+make gotty
+
+# Or run manually
+gotty -w ./bin/gollama-chat
 ```
 
-Then open your browser to the specified port (e.g., `http://localhost:8080`) to access the TUI through a web terminal interface.
+Then open your browser to `http://localhost:8080` to access the TUI through a web terminal interface.
 
 **Web Mode Features:**
 - Access the full TUI interface through any modern web browser
+- Powered by [GoTTY](https://github.com/sorenisanerd/gotty) for excellent terminal emulation
+- Perfect Unicode support including beautiful rounded borders
 - Useful for remote access or when running in containerized environments  
 - All TUI features work identically in web mode
-- Built with custom WebSocket-based terminal emulation using xterm.js
-- No external dependencies required - completely self-contained
+
+#### Docker Mode
+```bash
+# Build and run with Docker
+docker build -t gollama-chat .
+docker run -p 8080:8080 -v gollama-config:/home/appuser/.config/gollama gollama-chat
+
+# Or use docker compose
+docker compose up --build
+```
+
+**Docker Features:**
+- Alpine-based lightweight container
+- Built-in GoTTY web terminal on port 8080
+- Persistent configuration via volume mounts
+- Health checks included
+- Non-root user for security
 
 ### Command Line Options
 
@@ -74,7 +93,7 @@ gollama-chat [options]
 
 Options:
   -h                Show help
-  -webport int      Run in web mode on specified port (e.g., -webport 8080)
+  -child            Internal flag for PTY mode (used by GoTTY)
 ```
 
 Examples:
@@ -82,8 +101,8 @@ Examples:
 # Run in terminal mode (default)
 ./gollama-chat
 
-# Run in web mode on port 8080
-./gollama-chat -webport 8080
+# Run with GoTTY for web access
+gotty -w ./bin/gollama-chat
 ```
 
 ### Configuration
@@ -140,6 +159,128 @@ Default configuration:
 | `maxDocuments` | Maximum documents to retrieve for RAG | `5` |
 | `selectedCollections` | Selected collections for RAG queries | `{}` |
 | `defaultSystemPrompt` | Default system prompt for conversations | (See configuration example) |
+
+## Docker Usage
+
+gollama-chat provides full Docker support with a multi-stage Alpine-based container that includes GoTTY for web terminal access.
+
+### Quick Start with Docker
+
+```bash
+# Build the Docker image
+docker build -t gollama-chat .
+
+# Run with volume for persistent configuration
+docker run -p 8080:8080 \
+  -v gollama-config:/home/appuser/.config/gollama \
+  gollama-chat
+
+# Or use docker-compose (recommended)
+docker-compose up --build
+```
+
+Access the application at `http://localhost:8080` in your web browser.
+
+### Docker Compose (Recommended)
+
+The included `docker-compose.yml` provides the simplest setup:
+
+```yaml
+services:
+  gollama-chat:
+    build: .
+    ports:
+      - "8080:8080"
+    volumes:
+      - gollama-config:/home/appuser/.config/gollama
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 5s
+
+volumes:
+  gollama-config:
+```
+
+Run with:
+```bash
+docker compose up --build
+```
+
+### Docker Configuration
+
+The Docker container:
+- Uses Alpine Linux for minimal size (~50MB)
+- Runs as non-root user (`appuser`) for security
+- Includes GoTTY for excellent web terminal emulation
+- Supports full Unicode including rounded borders
+- Provides persistent configuration via volume mounts
+- Includes health checks for container orchestration
+
+### Volume Mounts
+
+The container stores configuration in `/home/appuser/.config/gollama`. Mount this directory to persist settings:
+
+```bash
+# Named volume (recommended)
+docker run -v gollama-config:/home/appuser/.config/gollama gollama-chat
+
+# Bind mount to host directory
+docker run -v ~/.config/gollama:/home/appuser/.config/gollama gollama-chat
+```
+
+### Building Custom Images
+
+```bash
+# Build with custom tag
+docker build -t my-gollama-chat:latest .
+
+# Build with specific Go version
+docker build --build-arg GO_VERSION=1.24.4 -t gollama-chat .
+
+# Multi-platform build (requires buildx)
+docker buildx build --platform linux/amd64,linux/arm64 -t gollama-chat .
+```
+
+### Docker Environment
+
+The container provides:
+- **Port 8080**: GoTTY web terminal interface
+- **Working Directory**: `/app`
+- **User**: `appuser` (non-root, UID 1000)
+- **Config Path**: `/home/appuser/.config/gollama`
+- **Health Check**: HTTP endpoint on port 8080
+
+### Troubleshooting Docker
+
+**Container won't start:**
+```bash
+# Check logs
+docker logs <container-id>
+
+# Run with debug output
+docker run -it gollama-chat sh
+```
+
+**Configuration not persisting:**
+```bash
+# Verify volume mount
+docker inspect <container-id> | grep -A 10 Mounts
+
+# Check volume contents
+docker run --rm -v gollama-config:/data alpine ls -la /data
+```
+
+**Web interface not accessible:**
+```bash
+# Check port mapping
+docker ps
+
+# Test health check manually
+docker exec <container-id> wget -qO- http://localhost:8080
+```
 
 ## Project Structure
 
@@ -217,6 +358,37 @@ make run
 
 ```bash
 make dev  # Runs fmt, vet, test, and build
+```
+
+### Docker Development
+
+```bash
+# Build and test Docker image
+make docker-build
+docker run -p 8080:8080 gollama-chat
+
+# Development with volume mount for live config changes
+docker run -p 8080:8080 \
+  -v $(pwd)/config:/home/appuser/.config/gollama \
+  gollama-chat
+
+# Clean up Docker resources
+docker system prune -f
+```
+
+### Local GoTTY Development
+
+For testing web terminal functionality without Docker:
+
+```bash
+# Install GoTTY if not already installed
+go install github.com/sorenisanerd/gotty@latest
+
+# Run with GoTTY
+make gotty
+
+# Or manually with custom options
+gotty -w --title-format "gollama-chat" ./bin/gollama-chat
 ```
 
 ### Testing

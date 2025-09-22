@@ -1,6 +1,6 @@
 # Makefile for gollama-chat
 
-.PHONY: build run web clean test test-coverage test-short test-verbose test-bench fmt vet deps dev
+.PHONY: build run gotty docker-build docker-run clean test test-coverage test-short test-verbose test-bench fmt vet deps dev
 
 # Variables
 BINARY_NAME=gollama-chat
@@ -23,11 +23,29 @@ run: build
 	@echo "Running $(BINARY_NAME)..."
 	./$(BUILD_DIR)/$(BINARY_NAME)
 
-# Run the application in web mode
-web: build
-	@echo "Running $(BINARY_NAME) in web mode on port 8080..."
+# Run the application with GoTTY (requires gotty to be installed)
+gotty: build
+	@echo "Running $(BINARY_NAME) with GoTTY web terminal..."
+	@echo "Install GoTTY with: go install github.com/sorenisanerd/gotty@latest"
 	@echo "Open your browser to http://localhost:8080"
-	./$(BUILD_DIR)/$(BINARY_NAME) -webport 8080
+	@which gotty > /dev/null || ls $(HOME)/go/bin/gotty > /dev/null || (echo "Error: gotty not found. Install with: go install github.com/sorenisanerd/gotty@latest" && exit 1)
+	@if which gotty > /dev/null; then \
+		gotty -w ./$(BUILD_DIR)/$(BINARY_NAME); \
+	else \
+		$(HOME)/go/bin/gotty -w ./$(BUILD_DIR)/$(BINARY_NAME); \
+	fi
+
+# Build Docker image
+docker-build:
+	@echo "Building Docker image..."
+	@docker build -t $(BINARY_NAME) .
+	@echo "Docker image built: $(BINARY_NAME)"
+
+# Run Docker container
+docker-run: docker-build
+	@echo "Running Docker container..."
+	@echo "Open your browser to http://localhost:8080"
+	@docker run -p 8080:8080 -v gollama-config:/home/appuser/.config/gollama $(BINARY_NAME)
 
 # Clean build artifacts
 clean:

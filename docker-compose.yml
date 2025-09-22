@@ -1,0 +1,20 @@
+services:
+  gollama-chat:
+    build: .
+    environment:
+      TERM: xterm-256color
+    ports:
+      - "8080:8080"
+    volumes:
+      - gollama-config:/home/appuser/.config/gollama
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 5s
+
+volumes:
+  gollama-config:
+    driver: local
