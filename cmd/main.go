@@ -11,11 +11,9 @@ import (
 
 	"github.com/kevensen/gollama-chat/internal/configuration"
 	"github.com/kevensen/gollama-chat/internal/tui/core"
-	"github.com/kevensen/gollama-chat/internal/webserver"
 )
 
 var (
-	webPort = flag.Int("webport", 0, "Run in web mode on specified port (e.g., -webport 8080)")
 	isChild = flag.Bool("child", false, "Internal flag - indicates running as child process")
 )
 
@@ -55,12 +53,8 @@ func main() {
 		log.Fatalf("Failed to load configuration: %v", err)
 	}
 
-	// If webport is specified and > 0, run in web mode
-	if *webPort > 0 {
-		runWebMode(ctx, config, *webPort)
-	} else {
-		runTUIMode(ctx, config)
-	}
+	// Run TUI mode
+	runTUIMode(ctx, config)
 }
 
 func runTUIMode(ctx context.Context, config *configuration.Config) {
@@ -91,12 +85,5 @@ func runTUIMode(ctx context.Context, config *configuration.Config) {
 	if _, err := program.Run(); err != nil {
 		fmt.Printf("Error running program: %v\n", err)
 		os.Exit(1)
-	}
-}
-
-func runWebMode(ctx context.Context, config *configuration.Config, port int) {
-	server := webserver.New(port, config)
-	if err := server.Start(ctx); err != nil {
-		log.Fatalf("Failed to start web server: %v", err)
 	}
 }
