@@ -30,11 +30,6 @@ jobs:
             goarch: arm64
             name: darwin-arm64
             runner: macos-latest
-          - goos: windows
-            goarch: amd64
-            name: windows-amd64
-            runner: windows-latest
-            ext: .exe
 
     steps:
       - name: Checkout repository
@@ -64,7 +59,7 @@ jobs:
           # Build binary with version info
           go build -v \
             -ldflags="-w -s -X main.version=${VERSION}" \
-            -o bin/gollama-chat-${{ matrix.name }}${{ matrix.ext || '' }} \
+            -o bin/gollama-chat-${{ matrix.name }} \
             ./cmd
 
       - name: Upload release assets
@@ -73,6 +68,6 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           upload_url: ${{ github.event.release.upload_url }}
-          asset_path: ./bin/gollama-chat-${{ matrix.name }}${{ matrix.ext || '' }}
-          asset_name: gollama-chat-${{ matrix.name }}${{ matrix.ext || '' }}
+          asset_path: ./bin/gollama-chat-${{ matrix.name }}
+          asset_name: gollama-chat-${{ matrix.name }}
           asset_content_type: application/octet-stream
