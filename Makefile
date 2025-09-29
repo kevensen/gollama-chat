@@ -6,7 +6,7 @@
 BINARY_NAME=gollama-chat
 BUILD_DIR=bin
 MAIN_PATH=cmd/main.go
-GO_BIN=/home/kdevensen/bin/go/bin/go
+GO_BIN=$(shell which go)
 
 # Default target
 all: build
