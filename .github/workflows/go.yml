@@ -60,7 +60,6 @@ jobs:
         env:
           GOOS: ${{ matrix.goos }}
           GOARCH: ${{ matrix.goarch }}
-          CGO_ENABLED: 0
         shell: bash
         run: |
           # Extract version from git tag
@@ -72,22 +71,12 @@ jobs:
             -o bin/gollama-chat-${{ matrix.name }}${{ matrix.ext || '' }} \
             ./cmd
 
-      - name: Create archive
-        shell: bash
-        run: |
-          cd bin
-          if [[ "${{ matrix.goos }}" == "windows" ]]; then
-            zip gollama-chat-${{ matrix.name }}.zip gollama-chat-${{ matrix.name }}${{ matrix.ext || '' }}
-          else
-            tar -czf gollama-chat-${{ matrix.name }}.tar.gz gollama-chat-${{ matrix.name }}${{ matrix.ext || '' }}
-          fi
-
       - name: Upload release assets
         uses: actions/upload-release-asset@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           upload_url: ${{ github.event.release.upload_url }}
-          asset_path: ./bin/gollama-chat-${{ matrix.name }}${{ matrix.goos == 'windows' && '.zip' || '.tar.gz' }}
-          asset_name: gollama-chat-${{ matrix.name }}${{ matrix.goos == 'windows' && '.zip' || '.tar.gz' }}
-          asset_content_type: ${{ matrix.goos == 'windows' && 'application/zip' || 'application/gzip' }}
+          asset_path: ./bin/gollama-chat-${{ matrix.name }}${{ matrix.ext || '' }}
+          asset_name: gollama-chat-${{ matrix.name }}${{ matrix.ext || '' }}
+          asset_content_type: application/octet-stream
