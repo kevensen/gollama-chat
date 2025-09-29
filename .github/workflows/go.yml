@@ -1,0 +1,93 @@
+name: Build Go Binaries
+
+on:
+  release:
+    types: [published]
+
+env:
+  GO_VERSION: "1.24.4"
+
+jobs:
+  build-and-upload:
+    runs-on: ${{ matrix.runner }}
+    permissions:
+      contents: write
+      packages: read
+
+    strategy:
+      matrix:
+        # Define target platforms with appropriate runners
+        include:
+          - goos: linux
+            goarch: amd64
+            name: linux-amd64
+            runner: ubuntu-latest
+          - goos: linux
+            goarch: arm64
+            name: linux-arm64
+            runner: ubuntu-24.04-arm
+          - goos: darwin
+            goarch: amd64
+            name: darwin-amd64
+            runner: macos-latest
+          - goos: darwin
+            goarch: arm64
+            name: darwin-arm64
+            runner: macos-latest
+          - goos: windows
+            goarch: amd64
+            name: windows-amd64
+            runner: windows-latest
+            ext: .exe
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      - name: Get dependencies
+        run: go mod download
+
+      - name: Run tests
+        run: go test -v ./...
+
+      - name: Build binary
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: 0
+        shell: bash
+        run: |
+          # Extract version from git tag
+          VERSION=${GITHUB_REF#refs/tags/}
+
+          # Build binary with version info
+          go build -v \
+            -ldflags="-w -s -X main.version=${VERSION}" \
+            -o bin/gollama-chat-${{ matrix.name }}${{ matrix.ext || '' }} \
+            ./cmd
+
+      - name: Create archive
+        shell: bash
+        run: |
+          cd bin
+          if [[ "${{ matrix.goos }}" == "windows" ]]; then
+            zip gollama-chat-${{ matrix.name }}.zip gollama-chat-${{ matrix.name }}${{ matrix.ext || '' }}
+          else
+            tar -czf gollama-chat-${{ matrix.name }}.tar.gz gollama-chat-${{ matrix.name }}${{ matrix.ext || '' }}
+          fi
+
+      - name: Upload release assets
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ github.event.release.upload_url }}
+          asset_path: ./bin/gollama-chat-${{ matrix.name }}${{ matrix.goos == 'windows' && '.zip' || '.tar.gz' }}
+          asset_name: gollama-chat-${{ matrix.name }}${{ matrix.goos == 'windows' && '.zip' || '.tar.gz' }}
+          asset_content_type: ${{ matrix.goos == 'windows' && 'application/zip' || 'application/gzip' }}
