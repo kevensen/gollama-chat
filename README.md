@@ -48,6 +48,18 @@ make run
 ./bin/gollama-chat
 ```
 
+#### Download the Binary
+
+1. Go to the releases page: https://github.com/kevensen/gollama-chat/releases.
+2. Download your binary to a directory in yourpath.
+3. Make the binary executable
+```
+chmod u+x <path to binary>
+```
+4. If on Macos, you will need ensure the binary is trusted:
+```
+xattr -d com.apple.quarantine <path to binary>
+```
 #### Web Mode (using GoTTY)
 ```bash
 # Install GoTTY (one time setup)

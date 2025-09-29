@@ -56,18 +56,23 @@ func (m Model) sendMessage(prompt string) tea.Cmd {
 		}
 
 		// Add all previous messages as context (preserving message history)
-		for _, msg := range m.messages {
-			messages = append(messages, api.Message{
-				Role:    msg.Role,
-				Content: msg.Content,
-			})
+		// Note: The current user message is already in m.messages, so we need to
+		// replace the last message with the RAG-enhanced version if RAG is enabled
+		for i, msg := range m.messages {
+			if i == len(m.messages)-1 && msg.Role == "user" && fullPrompt != prompt {
+				// This is the last message and RAG enhanced the prompt, use the enhanced version
+				messages = append(messages, api.Message{
+					Role:    msg.Role,
+					Content: fullPrompt,
+				})
+			} else {
+				// Use the original message content
+				messages = append(messages, api.Message{
+					Role:    msg.Role,
+					Content: msg.Content,
+				})
+			}
 		}
-
-		// Add the current user message with RAG context if available
-		messages = append(messages, api.Message{
-			Role:    "user",
-			Content: fullPrompt,
-		})
 
 		// Set options
 		options := map[string]any{
