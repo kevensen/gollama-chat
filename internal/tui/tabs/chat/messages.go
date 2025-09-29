@@ -9,6 +9,8 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/ollama/ollama/api"
+
+	"github.com/kevensen/gollama-chat/internal/tooling"
 )
 
 // sendMessage sends a message to Ollama using the Ollama API client
@@ -66,11 +68,37 @@ func (m Model) sendMessage(prompt string) tea.Cmd {
 					Content: fullPrompt,
 				})
 			} else {
-				// Use the original message content
-				messages = append(messages, api.Message{
+				// Convert chat.Message to api.Message with proper tool handling
+				apiMsg := api.Message{
 					Role:    msg.Role,
 					Content: msg.Content,
-				})
+				}
+
+				// For tool messages, set the ToolName field
+				if msg.Role == "tool" && msg.ToolName != "" {
+					apiMsg.ToolName = msg.ToolName
+					// Clean up the content to remove the [Tool name]: prefix for API
+					if strings.HasPrefix(msg.Content, "[Tool "+msg.ToolName+"]: ") {
+						apiMsg.Content = strings.TrimPrefix(msg.Content, "[Tool "+msg.ToolName+"]: ")
+					}
+				}
+
+				// For assistant messages, restore ToolCalls if present
+				if msg.Role == "assistant" && len(msg.ToolCalls) > 0 {
+					var toolCalls []api.ToolCall
+					for _, tcInfo := range msg.ToolCalls {
+						toolCall := api.ToolCall{
+							Function: api.ToolCallFunction{
+								Name:      tcInfo.FunctionName,
+								Arguments: tcInfo.Arguments,
+							},
+						}
+						toolCalls = append(toolCalls, toolCall)
+					}
+					apiMsg.ToolCalls = toolCalls
+				}
+
+				messages = append(messages, apiMsg)
 			}
 		}
 
@@ -81,6 +109,16 @@ func (m Model) sendMessage(prompt string) tea.Cmd {
 			"repeat_penalty": 1.1,
 		}
 
+		// Get available tools from the registry
+		var tools api.Tools // Use the correct api.Tools type ([]api.Tool)
+		builtinTools := tooling.DefaultRegistry.GetAllTools()
+		for _, tool := range builtinTools {
+			apiTool := tool.GetAPITool()
+			if apiTool != nil {
+				tools = append(tools, *apiTool) // Dereference the pointer
+			}
+		}
+
 		// Create chat request with stream enabled (true is default, but we're explicit)
 		stream := true
 		chatRequest := &api.ChatRequest{
@@ -88,11 +126,13 @@ func (m Model) sendMessage(prompt string) tea.Cmd {
 			Messages: messages,
 			Stream:   &stream,
 			Options:  options,
+			Tools:    tools, // Add tools to enable function calling
 		}
 
 		// Use ChatStream for real-time response with enhanced error handling
 		var fullResponse strings.Builder
 		var responseErr error
+		var toolCalls []api.ToolCall
 
 		err = client.Chat(m.ctx, chatRequest, func(response api.ChatResponse) error {
 			// Check for context cancellation
@@ -101,7 +141,14 @@ func (m Model) sendMessage(prompt string) tea.Cmd {
 				return responseErr
 			}
 
+			// Accumulate the text response
 			fullResponse.WriteString(response.Message.Content)
+
+			// Collect tool calls if present
+			if len(response.Message.ToolCalls) > 0 {
+				toolCalls = append(toolCalls, response.Message.ToolCalls...)
+			}
+
 			return nil
 		})
 
@@ -112,8 +159,139 @@ func (m Model) sendMessage(prompt string) tea.Cmd {
 			return responseMsg{err: fmt.Errorf("chat request failed: %w", err)}
 		}
 
-		return responseMsg{content: fullResponse.String()}
+		// Execute tool calls if present and get follow-up response
+		responseContent := fullResponse.String()
+		var additionalMessages []Message
+
+		if len(toolCalls) > 0 {
+			// Execute the tool calls
+			toolResultMessages, toolErr := m.executeToolCallsAndCreateMessages(toolCalls)
+			if toolErr != nil {
+				responseContent += fmt.Sprintf("\n\n[Tool execution error: %v]", toolErr)
+			} else {
+				// Only add assistant message with tool calls if it has content
+				if strings.TrimSpace(responseContent) != "" {
+					// Convert api.ToolCall to ToolCallInfo for storage
+					var toolCallInfos []ToolCallInfo
+					for _, tc := range toolCalls {
+						toolCallInfos = append(toolCallInfos, ToolCallInfo{
+							FunctionName: tc.Function.Name,
+							Arguments:    tc.Function.Arguments,
+						})
+					}
+
+					assistantWithToolsMsg := Message{
+						Role:      "assistant",
+						Content:   responseContent,
+						Time:      time.Now(),
+						ToolCalls: toolCallInfos,
+					}
+					additionalMessages = append(additionalMessages, assistantWithToolsMsg)
+				}
+
+				// Convert tool result api.Messages to chat.Messages and add to history
+				for _, toolResultMsg := range toolResultMessages {
+					chatToolMsg := Message{
+						Role:     "tool",                // Use "tool" role to distinguish from regular messages
+						Content:  toolResultMsg.Content, // Store clean content without prefix
+						Time:     time.Now(),
+						ToolName: toolResultMsg.ToolName,
+						Hidden:   true, // Hide tool messages from TUI display
+					}
+					additionalMessages = append(additionalMessages, chatToolMsg)
+				}
+
+				// Add assistant message with tool calls to messages for follow-up API call
+				messages = append(messages, api.Message{
+					Role:      "assistant",
+					Content:   responseContent,
+					ToolCalls: toolCalls,
+				})
+
+				// Add tool result messages for follow-up API call
+				messages = append(messages, toolResultMessages...)
+
+				// Make another API call to get the LLM's response to the tool results
+				followUpRequest := &api.ChatRequest{
+					Model:    m.config.ChatModel,
+					Messages: messages,
+					Stream:   &stream,
+					Options:  options,
+					Tools:    tools,
+				}
+
+				var followUpResponse strings.Builder
+				followUpErr := client.Chat(m.ctx, followUpRequest, func(response api.ChatResponse) error {
+					if m.ctx.Err() != nil {
+						return m.ctx.Err()
+					}
+					followUpResponse.WriteString(response.Message.Content)
+					return nil
+				})
+
+				if followUpErr != nil {
+					responseContent += fmt.Sprintf("\n\n[Follow-up response error: %v]", followUpErr)
+				} else {
+					responseContent = followUpResponse.String()
+				}
+			}
+		}
+
+		return responseMsg{
+			content:            responseContent,
+			additionalMessages: additionalMessages,
+		}
 	})
+}
+
+// executeToolCallsAndCreateMessages executes the tool calls and returns the tool result messages
+func (m Model) executeToolCallsAndCreateMessages(toolCalls []api.ToolCall) ([]api.Message, error) {
+	var messages []api.Message
+
+	for _, toolCall := range toolCalls {
+		// Get the tool from the registry
+		tool, exists := tooling.DefaultRegistry.GetTool(toolCall.Function.Name)
+		if !exists {
+			// Create error message for unknown tool
+			messages = append(messages, api.Message{
+				Role:     "tool",
+				Content:  fmt.Sprintf("Error: Tool '%s' not found", toolCall.Function.Name),
+				ToolName: toolCall.Function.Name,
+			})
+			continue
+		}
+
+		// Execute the tool with the provided arguments
+		result, err := tool.Execute(toolCall.Function.Arguments)
+		if err != nil {
+			// Create error message for tool execution failure
+			messages = append(messages, api.Message{
+				Role:     "tool",
+				Content:  fmt.Sprintf("Error executing %s: %v", toolCall.Function.Name, err),
+				ToolName: toolCall.Function.Name,
+			})
+			continue
+		}
+
+		// Format the result as JSON string for the tool response
+		var resultStr string
+		switch v := result.(type) {
+		case string:
+			resultStr = v
+		default:
+			// Convert result to JSON string for proper tool response format
+			resultStr = fmt.Sprintf("%+v", result)
+		}
+
+		// Create tool response message
+		messages = append(messages, api.Message{
+			Role:     "tool",
+			Content:  resultStr,
+			ToolName: toolCall.Function.Name,
+		})
+	}
+
+	return messages, nil
 }
 
 // calculateMessagesHeight calculates the total height of all messages

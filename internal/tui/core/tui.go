@@ -8,6 +8,7 @@ import (
 	configTab "github.com/kevensen/gollama-chat/internal/tui/tabs/configuration"
 	"github.com/kevensen/gollama-chat/internal/tui/tabs/configuration/utils/connection"
 	ragTab "github.com/kevensen/gollama-chat/internal/tui/tabs/rag"
+	toolsTab "github.com/kevensen/gollama-chat/internal/tui/tabs/tools"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -20,6 +21,7 @@ const (
 	ChatTab Tab = iota
 	ConfigTab
 	RAGTab
+	ToolsTab
 )
 
 // Model represents the main TUI model
@@ -30,6 +32,7 @@ type Model struct {
 	chatModel   chat.Model
 	configModel configTab.Model
 	ragModel    ragTab.Model
+	toolsModel  toolsTab.Model
 	width       int
 	height      int
 }
@@ -39,10 +42,11 @@ func NewModel(ctx context.Context, config *configuration.Config) Model {
 	return Model{
 		config:      config,
 		activeTab:   ChatTab,
-		tabs:        []string{"Chat", "Settings", "RAG Collections"},
+		tabs:        []string{"Chat", "Settings", "RAG Collections", "Tools"},
 		chatModel:   chat.NewModel(ctx, config),
 		configModel: configTab.NewModel(config),
 		ragModel:    ragTab.NewModel(ctx, config),
+		toolsModel:  toolsTab.NewModel(ctx, config),
 	}
 }
 
@@ -52,6 +56,7 @@ func (m Model) Init() tea.Cmd {
 		m.chatModel.Init(),
 		m.configModel.Init(),
 		m.ragModel.Init(),
+		m.toolsModel.Init(),
 	)
 }
 
@@ -94,6 +99,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			cmds = append(cmds, ragCmd)
 		}
 
+		toolsModel, toolsCmd := m.toolsModel.Update(tea.WindowSizeMsg{
+			Width:  m.width,
+			Height: m.height,
+		})
+		m.toolsModel = toolsModel.(toolsTab.Model)
+		if toolsCmd != nil {
+			cmds = append(cmds, toolsCmd)
+		}
+
 	case tea.KeyMsg:
 		switch msg.String() {
 		case "ctrl+c", "q":
@@ -112,6 +126,20 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					cmd = tea.Batch(ragCmd, initCmd)
 				} else if ragCmd != nil {
 					cmd = ragCmd
+				} else if initCmd != nil {
+					cmd = initCmd
+				}
+			}
+			// Trigger initialization when switching to Tools tab
+			if oldTab != ToolsTab && m.activeTab == ToolsTab {
+				// Refresh tools when entering Tools tab
+				toolsModel, toolsCmd := m.toolsModel.Update(tea.WindowSizeMsg{Width: m.width, Height: m.height})
+				m.toolsModel = toolsModel.(toolsTab.Model)
+				initCmd := m.toolsModel.Init()
+				if toolsCmd != nil && initCmd != nil {
+					cmd = tea.Batch(toolsCmd, initCmd)
+				} else if toolsCmd != nil {
+					cmd = toolsCmd
 				} else if initCmd != nil {
 					cmd = initCmd
 				}
@@ -138,6 +166,20 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					cmd = initCmd
 				}
 			}
+			// Trigger initialization when switching to Tools tab
+			if oldTab != ToolsTab && m.activeTab == ToolsTab {
+				// Refresh tools when entering Tools tab
+				toolsModel, toolsCmd := m.toolsModel.Update(tea.WindowSizeMsg{Width: m.width, Height: m.height})
+				m.toolsModel = toolsModel.(toolsTab.Model)
+				initCmd := m.toolsModel.Init()
+				if toolsCmd != nil && initCmd != nil {
+					cmd = tea.Batch(toolsCmd, initCmd)
+				} else if toolsCmd != nil {
+					cmd = toolsCmd
+				} else if initCmd != nil {
+					cmd = initCmd
+				}
+			}
 			// Sync selected collections when switching to Chat tab
 			if m.activeTab == ChatTab {
 				m.syncRAGCollections()
@@ -157,6 +199,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				ragModel, ragCmd := m.ragModel.Update(msg)
 				m.ragModel = ragModel.(ragTab.Model)
 				cmd = ragCmd
+			case ToolsTab:
+				toolsModel, toolsCmd := m.toolsModel.Update(msg)
+				m.toolsModel = toolsModel.(toolsTab.Model)
+				cmd = toolsCmd
 			}
 		}
 
@@ -207,6 +253,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				ragModel, ragCmd := m.ragModel.Update(msg)
 				m.ragModel = ragModel.(ragTab.Model)
 				cmd = ragCmd
+			case ToolsTab:
+				toolsModel, toolsCmd := m.toolsModel.Update(msg)
+				m.toolsModel = toolsModel.(toolsTab.Model)
+				cmd = toolsCmd
 			}
 		}
 	}
@@ -265,6 +315,8 @@ func (m Model) View() string {
 		content = m.configModel.View()
 	case RAGTab:
 		content = m.ragModel.View()
+	case ToolsTab:
+		content = m.toolsModel.View()
 	}
 
 	// Style content to fit available space
@@ -275,7 +327,7 @@ func (m Model) View() string {
 			Width(m.width)
 		styledContent = contentStyle.Render(content)
 	} else {
-		// Config and RAG tabs manage their own height with containers
+		// Config, RAG, and Tools tabs manage their own height with containers
 		styledContent = content
 	}
 
@@ -304,15 +356,18 @@ func (m Model) renderTabBar() string {
 
 	// Create compact tab names based on available width for maximum visibility
 	var tabNames []string
-	if m.width >= 25 {
+	if m.width >= 35 {
 		// Full tab names for reasonable width
-		tabNames = []string{"Chat", "Settings", "RAG Collections"}
+		tabNames = []string{"Chat", "Settings", "RAG Collections", "Tools"}
+	} else if m.width >= 15 {
+		// Medium names for moderate width
+		tabNames = []string{"Chat", "Config", "RAG", "Tools"}
 	} else if m.width >= 10 {
 		// Short names for narrow terminals
-		tabNames = []string{"C", "S", "R"}
+		tabNames = []string{"C", "S", "R", "T"}
 	} else if m.width >= 6 {
 		// Ultra-compact for very narrow terminals
-		tabNames = []string{"C", "S", "R"}
+		tabNames = []string{"C", "S", "R", "T"}
 	} else {
 		// Minimal representation for extremely narrow terminals (width 2-5)
 		tabNames = []string{"C"}
@@ -342,12 +397,12 @@ func (m Model) renderTabBar() string {
 	tabContent := lipgloss.JoinHorizontal(lipgloss.Top, tabs...)
 	if tabContent == "" {
 		// Progressive fallbacks for extreme cases
-		if m.width >= 15 {
-			tabContent = "Chat Settings RAG"
-		} else if m.width >= 7 {
-			tabContent = "C S R"
-		} else if m.width >= 3 {
-			tabContent = "CSR"
+		if m.width >= 20 {
+			tabContent = "Chat Settings RAG Tools"
+		} else if m.width >= 10 {
+			tabContent = "C S R T"
+		} else if m.width >= 4 {
+			tabContent = "CSRT"
 		} else {
 			tabContent = "C" // Absolute minimum
 		}

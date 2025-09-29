@@ -17,9 +17,18 @@ import (
 
 // Message represents a chat message
 type Message struct {
-	Role    string    `json:"role"` // "user" or "assistant"
-	Content string    `json:"content"`
-	Time    time.Time `json:"time"`
+	Role      string         `json:"role"` // "user", "assistant", or "tool"
+	Content   string         `json:"content"`
+	Time      time.Time      `json:"time"`
+	ToolName  string         `json:"tool_name,omitempty"`  // For tool messages
+	Hidden    bool           `json:"hidden,omitempty"`     // Whether to hide from TUI display
+	ToolCalls []ToolCallInfo `json:"tool_calls,omitempty"` // For assistant messages with tool calls
+}
+
+// ToolCallInfo stores tool call information for persistence
+type ToolCallInfo struct {
+	FunctionName string                 `json:"function_name"`
+	Arguments    map[string]interface{} `json:"arguments"`
 }
 
 // Model represents the chat tab model
@@ -138,8 +147,9 @@ type sendMessageMsg struct {
 
 // responseMsg is sent when a response is received from Ollama
 type responseMsg struct {
-	content string
-	err     error
+	content            string
+	err                error
+	additionalMessages []Message // For tool calls and results that need to be added to history
 }
 
 // ragStatusMsg is sent to update RAG status in the input
@@ -456,13 +466,23 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			m.messages = append(m.messages, errorMsg)
 		} else {
-			// Add assistant response
-			assistantMsg := Message{
-				Role:    "assistant",
-				Content: msg.content,
-				Time:    time.Now(),
+			// Add any additional messages first (tool calls and results)
+			for _, additionalMsg := range msg.additionalMessages {
+				// Skip empty messages
+				if strings.TrimSpace(additionalMsg.Content) != "" {
+					m.messages = append(m.messages, additionalMsg)
+				}
 			}
-			m.messages = append(m.messages, assistantMsg)
+
+			// Add final assistant response only if it has content
+			if strings.TrimSpace(msg.content) != "" {
+				assistantMsg := Message{
+					Role:    "assistant",
+					Content: msg.content,
+					Time:    time.Now(),
+				}
+				m.messages = append(m.messages, assistantMsg)
+			}
 		}
 
 		// Mark messages for update but preserve layout dimensions

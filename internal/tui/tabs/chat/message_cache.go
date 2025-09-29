@@ -66,11 +66,13 @@ func (c *MessageCache) GetTotalHeight(model *Model) int {
 		return c.cachedTotalHeight
 	}
 
-	// Compute height of all messages
+	// Compute height of all messages (excluding hidden ones)
 	height := 0
 	for _, msg := range model.messages {
-		renderedMsg := c.GetRenderedMessage(model, msg, model.width)
-		height += len(renderedMsg)
+		if !msg.Hidden { // Skip hidden messages
+			renderedMsg := c.GetRenderedMessage(model, msg, model.width)
+			height += len(renderedMsg)
+		}
 	}
 
 	c.cachedTotalHeight = height
@@ -109,10 +111,12 @@ func (c *MessageCache) RenderAllMessages(model *Model) string {
 
 	var allLines []string
 
-	// Get all rendered message lines
+	// Get all rendered message lines (excluding hidden messages)
 	for _, msg := range model.messages {
-		lines := c.GetRenderedMessage(model, msg, model.width-4) // Account for border width
-		allLines = append(allLines, lines...)
+		if !msg.Hidden { // Skip hidden messages
+			lines := c.GetRenderedMessage(model, msg, model.width-4) // Account for border width
+			allLines = append(allLines, lines...)
+		}
 	}
 
 	// Calculate the visible portion based on scroll offset
