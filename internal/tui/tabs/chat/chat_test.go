@@ -7,6 +7,9 @@ import (
 	"testing"
 	"time"
 
+	tea "github.com/charmbracelet/bubbletea"
+	"github.com/ollama/ollama/api"
+
 	"github.com/kevensen/gollama-chat/internal/configuration"
 )
 
@@ -955,5 +958,407 @@ func TestModel_MessageProcessing_Integration(t *testing.T) {
 		if !strings.Contains(lastMessage.Content, "Error:") {
 			t.Error("Last message should be an error message")
 		}
+	}
+}
+
+// Tool Authorization Tests
+
+func TestToolPermissionRequest(t *testing.T) {
+	config := &configuration.Config{
+		ChatModel:           "llama3.1",
+		OllamaURL:           "http://localhost:11434",
+		DefaultSystemPrompt: "Test prompt",
+		SelectedCollections: make(map[string]bool),
+		ToolTrustLevels: map[string]int{
+			"filesystem_read": 1, // AskForTrust
+		},
+	}
+
+	ctx := context.Background()
+	model := NewModel(ctx, config)
+
+	// Test permission request creation
+	toolRequest := &ToolPermissionRequest{
+		ToolCall: api.ToolCall{
+			Function: api.ToolCallFunction{
+				Name: "filesystem_read",
+				Arguments: map[string]interface{}{
+					"action": "get_working_directory",
+				},
+			},
+		},
+		ToolName:    "filesystem_read",
+		Description: "Tool 'filesystem_read' requires permission to execute",
+	}
+
+	model.pendingToolPermission = toolRequest
+	model.waitingForPermission = true
+
+	if !model.waitingForPermission {
+		t.Error("Model should be waiting for permission")
+	}
+	if model.pendingToolPermission == nil {
+		t.Error("Pending tool permission should be set")
+	}
+	if model.pendingToolPermission.ToolName != "filesystem_read" {
+		t.Errorf("Expected tool name 'filesystem_read', got '%s'", model.pendingToolPermission.ToolName)
+	}
+}
+
+func TestToolPermissionResponses(t *testing.T) {
+	tests := []struct {
+		name           string
+		response       string
+		expectedAction string
+		shouldExecute  bool
+		shouldUpgrade  bool
+	}{
+		{
+			name:           "Yes response",
+			response:       "y",
+			expectedAction: "execute",
+			shouldExecute:  true,
+			shouldUpgrade:  false,
+		},
+		{
+			name:           "Yes full word",
+			response:       "yes",
+			expectedAction: "execute",
+			shouldExecute:  true,
+			shouldUpgrade:  false,
+		},
+		{
+			name:           "No response",
+			response:       "n",
+			expectedAction: "deny",
+			shouldExecute:  false,
+			shouldUpgrade:  false,
+		},
+		{
+			name:           "No full word",
+			response:       "no",
+			expectedAction: "deny",
+			shouldExecute:  false,
+			shouldUpgrade:  false,
+		},
+		{
+			name:           "Trust response",
+			response:       "t",
+			expectedAction: "execute",
+			shouldExecute:  true,
+			shouldUpgrade:  true,
+		},
+		{
+			name:           "Trust full word",
+			response:       "trust",
+			expectedAction: "execute",
+			shouldExecute:  true,
+			shouldUpgrade:  true,
+		},
+		{
+			name:           "Invalid response",
+			response:       "invalid",
+			expectedAction: "invalid",
+			shouldExecute:  false,
+			shouldUpgrade:  false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			config := &configuration.Config{
+				ChatModel:           "llama3.1",
+				OllamaURL:           "http://localhost:11434",
+				DefaultSystemPrompt: "Test prompt",
+				SelectedCollections: make(map[string]bool),
+				ToolTrustLevels:     make(map[string]int),
+			}
+
+			ctx := context.Background()
+			model := NewModel(ctx, config)
+
+			// Setup permission request
+			toolRequest := &ToolPermissionRequest{
+				ToolCall: api.ToolCall{
+					Function: api.ToolCallFunction{
+						Name: "filesystem_read",
+						Arguments: map[string]interface{}{
+							"action": "get_working_directory",
+						},
+					},
+				},
+				ToolName:    "filesystem_read",
+				Description: "Tool 'filesystem_read' requires permission to execute",
+			}
+
+			model.pendingToolPermission = toolRequest
+			model.waitingForPermission = true
+			model.inputModel.SetValue(tt.response)
+
+			initialTrustLevel := config.GetToolTrustLevel("filesystem_read")
+
+			// Simulate enter key press with response
+			keyMsg := tea.KeyMsg{Type: tea.KeyEnter}
+			updatedModelInterface, _ := model.Update(keyMsg)
+			updatedModel := updatedModelInterface.(Model)
+
+			// Verify response handling
+			switch tt.expectedAction {
+			case "execute":
+				if updatedModel.waitingForPermission {
+					t.Error("Should not be waiting for permission after execution")
+				}
+				if tt.shouldUpgrade {
+					newTrustLevel := config.GetToolTrustLevel("filesystem_read")
+					if newTrustLevel != 2 { // TrustSession
+						t.Errorf("Trust level should be upgraded to 2, got %d", newTrustLevel)
+					}
+				} else {
+					newTrustLevel := config.GetToolTrustLevel("filesystem_read")
+					if newTrustLevel != initialTrustLevel {
+						t.Errorf("Trust level should not change, was %d, got %d", initialTrustLevel, newTrustLevel)
+					}
+				}
+			case "deny":
+				if updatedModel.waitingForPermission {
+					t.Error("Should not be waiting for permission after denial")
+				}
+				// Check for denial message
+				if len(updatedModel.messages) > 0 {
+					lastMessage := updatedModel.messages[len(updatedModel.messages)-1]
+					if !strings.Contains(lastMessage.Content, "denied") {
+						t.Error("Should contain denial message")
+					}
+				}
+			case "invalid":
+				if !updatedModel.waitingForPermission {
+					t.Error("Should still be waiting for permission after invalid response")
+				}
+				// Check for error message
+				if len(updatedModel.messages) > 0 {
+					lastMessage := updatedModel.messages[len(updatedModel.messages)-1]
+					if !strings.Contains(lastMessage.Content, "Please respond with") {
+						t.Error("Should contain instruction message for invalid response")
+					}
+				}
+			}
+		})
+	}
+}
+
+func TestPlaceholderTextChange(t *testing.T) {
+	config := &configuration.Config{
+		ChatModel:           "llama3.1",
+		OllamaURL:           "http://localhost:11434",
+		DefaultSystemPrompt: "Test prompt",
+		SelectedCollections: make(map[string]bool),
+		ToolTrustLevels:     make(map[string]int),
+	}
+
+	ctx := context.Background()
+	model := NewModel(ctx, config)
+
+	// Initially should have default placeholder
+	// Note: We can't directly test the placeholder text as it's internal to input model
+	// But we can test the state transitions
+
+	// Setup permission request
+	toolRequest := &ToolPermissionRequest{
+		ToolCall: api.ToolCall{
+			Function: api.ToolCallFunction{
+				Name:      "filesystem_read",
+				Arguments: map[string]interface{}{},
+			},
+		},
+		ToolName:    "filesystem_read",
+		Description: "Tool requires permission",
+	}
+
+	model.pendingToolPermission = toolRequest
+	model.waitingForPermission = true
+
+	// Simulate the placeholder change that happens when permission is requested
+	model.inputModel.SetPlaceholder("Type your response...")
+
+	// Verify state
+	if !model.waitingForPermission {
+		t.Error("Should be waiting for permission")
+	}
+
+	// Process a valid response
+	model.inputModel.SetValue("y")
+	keyMsg := tea.KeyMsg{Type: tea.KeyEnter}
+	updatedModelInterface, _ := model.Update(keyMsg)
+	updatedModel := updatedModelInterface.(Model)
+
+	// Verify state is reset
+	if updatedModel.waitingForPermission {
+		t.Error("Should not be waiting for permission after response")
+	}
+}
+
+func TestPermissionRequestDetection(t *testing.T) {
+	config := &configuration.Config{
+		ChatModel:           "llama3.1",
+		OllamaURL:           "http://localhost:11434",
+		DefaultSystemPrompt: "Test prompt",
+		SelectedCollections: make(map[string]bool),
+		ToolTrustLevels:     make(map[string]int),
+	}
+
+	ctx := context.Background()
+	model := NewModel(ctx, config)
+
+	// Create a mock response that includes a permission request
+	additionalMessages := []Message{
+		{
+			Role:     "tool",
+			Content:  "❓ Tool 'filesystem_read' wants to execute with arguments: map[action:get_working_directory]\n\nAllow execution? (y)es / (n)o / (t)rust for session\n\nTOOL_CALL_DATA:filesystem_read:map[action:get_working_directory]",
+			ToolName: "filesystem_read",
+			Time:     time.Now(),
+		},
+	}
+
+	responseMsg := responseMsg{
+		content:            "I can help you get the current working directory.",
+		additionalMessages: additionalMessages,
+	}
+
+	// Process the response
+	updatedModelInterface, _ := model.Update(responseMsg)
+	updatedModel := updatedModelInterface.(Model)
+
+	// Verify permission request was detected
+	if !updatedModel.waitingForPermission {
+		t.Error("Should be waiting for permission after detecting permission request")
+	}
+	if updatedModel.pendingToolPermission == nil {
+		t.Error("Pending tool permission should be set")
+	}
+	if updatedModel.pendingToolPermission.ToolName != "filesystem_read" {
+		t.Errorf("Expected tool name 'filesystem_read', got '%s'", updatedModel.pendingToolPermission.ToolName)
+	}
+}
+
+func TestToolTrustLevelEnforcement(t *testing.T) {
+	tests := []struct {
+		name        string
+		trustLevel  int
+		expectBlock bool
+		expectAsk   bool
+		expectAllow bool
+	}{
+		{
+			name:        "Trust None blocks execution",
+			trustLevel:  0, // TrustNone
+			expectBlock: true,
+			expectAsk:   false,
+			expectAllow: false,
+		},
+		{
+			name:        "Ask For Trust prompts user",
+			trustLevel:  1, // AskForTrust
+			expectBlock: false,
+			expectAsk:   true,
+			expectAllow: false,
+		},
+		{
+			name:        "Trust Session allows execution",
+			trustLevel:  2, // TrustSession
+			expectBlock: false,
+			expectAsk:   false,
+			expectAllow: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			config := &configuration.Config{
+				ChatModel:           "llama3.1",
+				OllamaURL:           "http://localhost:11434",
+				DefaultSystemPrompt: "Test prompt",
+				SelectedCollections: make(map[string]bool),
+				ToolTrustLevels: map[string]int{
+					"filesystem_read": tt.trustLevel,
+				},
+			}
+
+			ctx := context.Background()
+			_ = NewModel(ctx, config)
+
+			// Note: Full tool execution testing would require mocking the Ollama API
+			// Here we test the trust level configuration aspect
+			actualTrustLevel := config.GetToolTrustLevel("filesystem_read")
+			if actualTrustLevel != tt.trustLevel {
+				t.Errorf("Expected trust level %d, got %d", tt.trustLevel, actualTrustLevel)
+			}
+		})
+	}
+}
+
+// TestSequentialChatInteractionFlow demonstrates how to chain commands where each step uses output from previous
+func TestSequentialChatInteractionFlow(t *testing.T) {
+	config := &configuration.Config{
+		ChatModel:           "test-model",
+		DefaultSystemPrompt: "Test assistant",
+		SelectedCollections: make(map[string]bool),
+		ToolTrustLevels:     map[string]int{},
+	}
+	ctx := context.Background()
+	model := NewModel(ctx, config)
+
+	// Step 1: Send initial message and capture the state change
+	initialMessage := "Hello, test message"
+	model.inputModel.SetValue(initialMessage)
+
+	// Capture the initial state
+	initialInputValue := model.inputModel.Value()
+	if initialInputValue != initialMessage {
+		t.Errorf("Expected input value '%s', got '%s'", initialMessage, initialInputValue)
+	}
+
+	// Execute first command and capture its output (input should be cleared)
+	enterMsg := tea.KeyMsg{Type: tea.KeyEnter}
+	updatedModelInterface, _ := model.Update(enterMsg)
+	model = updatedModelInterface.(Model)
+
+	// Step 2: Use the state change from step 1 to verify the command worked
+	finalInputValue := model.inputModel.Value()
+	if finalInputValue != "" {
+		t.Logf("Input was not cleared, value: '%s'", finalInputValue)
+	}
+
+	// Step 3: Use the conversation to add a message directly (simulating received response)
+	responseMessage := Message{
+		Role:    "assistant",
+		Content: fmt.Sprintf("I received: %s", initialMessage),
+		Time:    time.Now(),
+	}
+	model.messages = append(model.messages, responseMessage)
+
+	// Step 4: Use the message count from step 3 for next operation
+	messageCount := len(model.messages)
+
+	// Set a follow-up message based on the current state
+	followUpText := fmt.Sprintf("Follow-up based on %d existing messages", messageCount)
+	model.inputModel.SetValue(followUpText)
+
+	// Step 5: Use the follow-up text to verify sequential state handling
+	currentInput := model.inputModel.Value()
+	if currentInput != followUpText {
+		t.Errorf("Expected current input '%s', got '%s'", followUpText, currentInput)
+	}
+
+	// Step 6: Demonstrate using accumulated state for final verification
+	t.Logf("Successfully processed sequential flow:")
+	t.Logf("  Step 1: Set input '%s'", initialMessage)
+	t.Logf("  Step 2: Processed enter (input cleared: %v)", finalInputValue == "")
+	t.Logf("  Step 3: Added response message (total messages: %d)", messageCount)
+	t.Logf("  Step 4: Set follow-up '%s' based on message count", followUpText)
+	t.Logf("  Step 5: Current input state: '%s'", currentInput)
+
+	// Verify the final state uses data from all previous steps
+	if messageCount > 0 && strings.Contains(followUpText, fmt.Sprintf("%d", messageCount)) {
+		t.Logf("  ✓ Sequential data flow verified: follow-up text includes message count from step 3")
 	}
 }

@@ -9,9 +9,11 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/ollama/ollama/api"
 
 	"github.com/kevensen/gollama-chat/internal/configuration"
 	"github.com/kevensen/gollama-chat/internal/rag"
+	"github.com/kevensen/gollama-chat/internal/tooling"
 	"github.com/kevensen/gollama-chat/internal/tui/tabs/chat/input"
 )
 
@@ -29,6 +31,13 @@ type Message struct {
 type ToolCallInfo struct {
 	FunctionName string                 `json:"function_name"`
 	Arguments    map[string]interface{} `json:"arguments"`
+}
+
+// ToolPermissionRequest represents a pending tool permission request
+type ToolPermissionRequest struct {
+	ToolCall    api.ToolCall
+	ToolName    string
+	Description string
 }
 
 // Model represents the chat tab model
@@ -56,6 +65,11 @@ type Model struct {
 	inputModel   *input.Model
 	messageCache *MessageCache
 	styles       Styles
+
+	// Tool permission prompt state
+	pendingToolPermission *ToolPermissionRequest
+	waitingForPermission  bool
+	pendingToolCalls      map[string]api.ToolCall // Store complete tool calls by tool name
 
 	// View caching
 	cachedMessagesView      string
@@ -133,8 +147,9 @@ func NewModel(ctx context.Context, config *configuration.Config) Model {
 		messagesNeedsUpdate:     true,
 		statusNeedsUpdate:       true,
 		systemPromptNeedsUpdate: true,
-		showSystemPrompt:        false,                      // Initially hidden
-		sessionSystemPrompt:     config.DefaultSystemPrompt, // Initialize with default
+		showSystemPrompt:        false,                         // Initially hidden
+		pendingToolCalls:        make(map[string]api.ToolCall), // Initialize tool calls map
+		sessionSystemPrompt:     config.DefaultSystemPrompt,    // Initialize with default
 		systemPromptEditMode:    false,
 		systemPromptEditor:      "",
 	}
@@ -251,6 +266,33 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.systemPromptEditor += "\n"
 				m.systemPromptNeedsUpdate = true
 				return m, nil
+			} else if m.waitingForPermission && m.pendingToolPermission != nil {
+				// Handle permission response
+				response := strings.TrimSpace(strings.ToLower(m.inputModel.Value()))
+				m.inputModel.Clear()
+
+				switch response {
+				case "y", "yes":
+					// Execute the tool with current trust level
+					return m.executeApprovedTool(false)
+				case "n", "no":
+					// Deny tool execution
+					return m.denyToolExecution()
+				case "t", "trust":
+					// Execute the tool and update trust level to Session
+					return m.executeApprovedTool(true)
+				default:
+					// Invalid response, show message and keep waiting
+					invalidMsg := Message{
+						Role:    "system",
+						Content: "Please respond with 'y' (yes), 'n' (no), or 't' (trust for session)",
+						Time:    time.Now(),
+					}
+					m.messages = append(m.messages, invalidMsg)
+					m.messagesNeedsUpdate = true
+					m.messageCache.InvalidateCache()
+					return m, nil
+				}
 			} else if strings.TrimSpace(m.inputModel.Value()) != "" {
 				// Add user message
 				userMsg := Message{
@@ -466,22 +508,89 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			m.messages = append(m.messages, errorMsg)
 		} else {
-			// Add any additional messages first (tool calls and results)
+			// Check for tool permission requests in additional messages
+			permissionFound := false
 			for _, additionalMsg := range msg.additionalMessages {
-				// Skip empty messages
-				if strings.TrimSpace(additionalMsg.Content) != "" {
-					m.messages = append(m.messages, additionalMsg)
+				// Check if this is a permission request message
+				if additionalMsg.Role == "tool" && strings.HasPrefix(additionalMsg.Content, "❓ Tool '") &&
+					strings.Contains(additionalMsg.Content, "Allow execution? (y)es / (n)o / (t)rust for session") {
+
+					// Extract tool name and arguments from the message
+					toolName := additionalMsg.ToolName
+					if toolName != "" {
+						// Extract arguments from the TOOL_CALL_DATA section
+						var arguments map[string]interface{}
+						if strings.Contains(additionalMsg.Content, "TOOL_CALL_DATA:") {
+							// Parse the tool call data - this is a simplified approach
+							// The format is: TOOL_CALL_DATA:toolname:arguments
+							parts := strings.Split(additionalMsg.Content, "TOOL_CALL_DATA:")
+							if len(parts) > 1 {
+								// For now, we'll reconstruct the arguments based on the tool
+								// This is not ideal but works for the filesystem tool
+								if toolName == "filesystem_read" && strings.Contains(additionalMsg.Content, "get_working_directory") {
+									arguments = map[string]interface{}{
+										"action": "get_working_directory",
+									}
+								} else {
+									arguments = make(map[string]interface{})
+								}
+							} else {
+								arguments = make(map[string]interface{})
+							}
+						} else {
+							arguments = make(map[string]interface{})
+						}
+
+						// Create the complete tool call
+						toolCall := api.ToolCall{
+							Function: api.ToolCallFunction{
+								Name:      toolName,
+								Arguments: arguments,
+							},
+						}
+
+						// Store the complete tool call for later execution
+						m.pendingToolCalls[toolName] = toolCall
+
+						// Set up permission request with the actual tool call
+						m.pendingToolPermission = &ToolPermissionRequest{
+							ToolCall:    toolCall,
+							ToolName:    toolName,
+							Description: fmt.Sprintf("Tool '%s' requires permission to execute", toolName),
+						}
+						m.waitingForPermission = true
+						m.inputModel.SetPlaceholder("Type your response...")
+						permissionFound = true
+
+						// Add a cleaned up version of the permission request message to display
+						cleanContent := strings.Split(additionalMsg.Content, "\n\nTOOL_CALL_DATA:")[0]
+						cleanMsg := Message{
+							Role:     additionalMsg.Role,
+							Content:  cleanContent,
+							Time:     time.Now(),
+							ToolName: additionalMsg.ToolName,
+						}
+						m.messages = append(m.messages, cleanMsg)
+					}
+				} else {
+					// Skip empty messages
+					if strings.TrimSpace(additionalMsg.Content) != "" {
+						m.messages = append(m.messages, additionalMsg)
+					}
 				}
 			}
 
-			// Add final assistant response only if it has content
-			if strings.TrimSpace(msg.content) != "" {
-				assistantMsg := Message{
-					Role:    "assistant",
-					Content: msg.content,
-					Time:    time.Now(),
+			// If we found a permission request, don't add the final assistant response yet
+			if !permissionFound {
+				// Add final assistant response only if it has content
+				if strings.TrimSpace(msg.content) != "" {
+					assistantMsg := Message{
+						Role:    "assistant",
+						Content: msg.content,
+						Time:    time.Now(),
+					}
+					m.messages = append(m.messages, assistantMsg)
 				}
-				m.messages = append(m.messages, assistantMsg)
 			}
 		}
 
@@ -671,4 +780,91 @@ func (m *Model) getCachedModelContextSize() int {
 // GetRAGService returns the RAG service for external access
 func (m Model) GetRAGService() *rag.Service {
 	return m.ragService
+}
+
+// executeApprovedTool executes the pending tool with user approval
+func (m Model) executeApprovedTool(updateTrustLevel bool) (tea.Model, tea.Cmd) {
+	if m.pendingToolPermission == nil {
+		return m, nil
+	}
+
+	// If user chose to trust for session, update the trust level
+	if updateTrustLevel {
+		_ = m.config.SetToolTrustLevel(m.pendingToolPermission.ToolName, 2) // TrustSession
+	}
+
+	// Execute the tool
+	tool, exists := tooling.DefaultRegistry.GetTool(m.pendingToolPermission.ToolCall.Function.Name)
+	if !exists {
+		// Add error message
+		errorMsg := Message{
+			Role:    "assistant",
+			Content: fmt.Sprintf("Error: Tool '%s' not found", m.pendingToolPermission.ToolName),
+			Time:    time.Now(),
+		}
+		m.messages = append(m.messages, errorMsg)
+	} else {
+		// Execute the tool
+		result, err := tool.Execute(m.pendingToolPermission.ToolCall.Function.Arguments)
+		if err != nil {
+			// Add error message
+			errorMsg := Message{
+				Role:    "assistant",
+				Content: fmt.Sprintf("Error executing %s: %v", m.pendingToolPermission.ToolName, err),
+				Time:    time.Now(),
+			}
+			m.messages = append(m.messages, errorMsg)
+		} else {
+			// Add successful result
+			var resultStr string
+			switch v := result.(type) {
+			case string:
+				resultStr = v
+			default:
+				resultStr = fmt.Sprintf("%v", result)
+			}
+
+			resultMsg := Message{
+				Role:    "assistant",
+				Content: fmt.Sprintf("✅ Tool '%s' executed successfully:\n%s", m.pendingToolPermission.ToolName, resultStr),
+				Time:    time.Now(),
+			}
+			m.messages = append(m.messages, resultMsg)
+		}
+	}
+
+	// Clear permission state
+	m.pendingToolPermission = nil
+	m.waitingForPermission = false
+	m.inputModel.SetPlaceholder("Type your question...")
+
+	// Update UI
+	m.messagesNeedsUpdate = true
+	m.messageCache.InvalidateCache()
+
+	return m, nil
+} // denyToolExecution denies the pending tool execution
+func (m Model) denyToolExecution() (tea.Model, tea.Cmd) {
+	if m.pendingToolPermission == nil {
+		return m, nil
+	}
+
+	// Add denial message
+	denialMsg := Message{
+		Role:    "assistant",
+		Content: fmt.Sprintf("❌ Tool '%s' execution denied by user", m.pendingToolPermission.ToolName),
+		Time:    time.Now(),
+	}
+	m.messages = append(m.messages, denialMsg)
+
+	// Clear permission state
+	m.pendingToolPermission = nil
+	m.waitingForPermission = false
+	m.inputModel.SetPlaceholder("Type your question...")
+
+	// Update UI
+	m.messagesNeedsUpdate = true
+	m.messageCache.InvalidateCache()
+
+	return m, nil
 }

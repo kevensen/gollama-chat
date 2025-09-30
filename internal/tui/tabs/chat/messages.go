@@ -13,6 +13,11 @@ import (
 	"github.com/kevensen/gollama-chat/internal/tooling"
 )
 
+// toolPermissionRequestMsg is sent when a tool requires permission
+type toolPermissionRequestMsg struct {
+	request ToolPermissionRequest
+}
+
 // sendMessage sends a message to Ollama using the Ollama API client
 func (m Model) sendMessage(prompt string) tea.Cmd {
 	return tea.Cmd(func() tea.Msg {
@@ -256,6 +261,42 @@ func (m Model) executeToolCallsAndCreateMessages(toolCalls []api.ToolCall) ([]ap
 			messages = append(messages, api.Message{
 				Role:     "tool",
 				Content:  fmt.Sprintf("Error: Tool '%s' not found", toolCall.Function.Name),
+				ToolName: toolCall.Function.Name,
+			})
+			continue
+		}
+
+		// Check tool trust level from configuration
+		trustLevel := m.config.GetToolTrustLevel(toolCall.Function.Name)
+
+		// Handle trust levels
+		switch trustLevel {
+		case 0: // TrustNone - block execution
+			messages = append(messages, api.Message{
+				Role:     "tool",
+				Content:  fmt.Sprintf("🚫 Tool '%s' execution blocked: Tool trust is set to 'None'. Go to Tools tab (press 't') to change trust level to 'Session' to allow execution.", toolCall.Function.Name),
+				ToolName: toolCall.Function.Name,
+			})
+			continue
+		case 1: // AskForTrust - require user permission
+			// Create a permission request message that will be handled by the UI
+			permissionMsg := fmt.Sprintf("❓ Tool '%s' wants to execute with arguments: %v\n\nAllow execution? (y)es / (n)o / (t)rust for session\n\nTOOL_CALL_DATA:%s:%v",
+				toolCall.Function.Name, toolCall.Function.Arguments, toolCall.Function.Name, toolCall.Function.Arguments)
+
+			messages = append(messages, api.Message{
+				Role:     "tool",
+				Content:  permissionMsg,
+				ToolName: toolCall.Function.Name,
+			})
+			// Note: The actual tool execution will be deferred until user responds
+			continue
+		case 2: // TrustSession - allow execution
+			// Continue with execution
+		default:
+			// Unknown trust level, block for safety
+			messages = append(messages, api.Message{
+				Role:     "tool",
+				Content:  fmt.Sprintf("⚠️  Tool '%s' execution blocked: Unknown trust level (%d). Please check Tools tab.", toolCall.Function.Name, trustLevel),
 				ToolName: toolCall.Function.Name,
 			})
 			continue

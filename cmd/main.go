@@ -20,6 +20,7 @@ var (
 func main() {
 	// Parse command line flags
 	flag.Parse()
+	ctx := context.Background()
 
 	// If we're being run as a child process, force TUI mode
 	if *isChild {
@@ -32,7 +33,6 @@ func main() {
 
 		log.Printf("Child process starting...")
 
-		ctx := context.Background()
 		config, err := configuration.Load()
 		if err != nil {
 			log.Printf("Failed to load configuration: %v", err)
@@ -44,8 +44,6 @@ func main() {
 		runTUIMode(ctx, config)
 		return
 	}
-
-	ctx := context.Background()
 
 	// Load configuration
 	config, err := configuration.Load()

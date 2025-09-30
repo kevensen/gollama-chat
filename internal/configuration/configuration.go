@@ -19,6 +19,7 @@ type Config struct {
 	MaxDocuments        int             `json:"maxDocuments"`
 	SelectedCollections map[string]bool `json:"selectedCollections"`
 	DefaultSystemPrompt string          `json:"defaultSystemPrompt"`
+	ToolTrustLevels     map[string]int  `json:"toolTrustLevels"` // Maps tool name to trust level: 0=None(block), 1=Ask(prompt), 2=Session(allow)
 }
 
 // DefaultConfig returns a configuration with sensible defaults
@@ -32,6 +33,7 @@ func DefaultConfig() *Config {
 		ChromaDBDistance:    1.0, // Updated for cosine similarity (0-2 range)
 		MaxDocuments:        5,
 		SelectedCollections: make(map[string]bool),
+		ToolTrustLevels:     make(map[string]int),
 		DefaultSystemPrompt: "You are a helpful Q&A bot. Your purpose is to provide direct, accurate answers to user questions. When providing lists of items (such as countries, capitals, features, etc.), format your response using proper numbered or bulleted lists. Be consistent in your formatting. If you don't know the answer, state that you are unable to provide a response.",
 	}
 }
@@ -108,6 +110,11 @@ func applyDefaultsIfMissing(c *Config) {
 		c.DefaultSystemPrompt = defaultConfig.DefaultSystemPrompt
 	}
 
+	// Initialize ToolTrustLevels if nil (for backward compatibility)
+	if c.ToolTrustLevels == nil {
+		c.ToolTrustLevels = make(map[string]int)
+	}
+
 	// Add checks for any future fields here
 }
 
@@ -161,4 +168,21 @@ func (c *Config) Validate() error {
 		return fmt.Errorf("maxDocuments must be greater than 0")
 	}
 	return nil
+}
+
+// GetToolTrustLevel returns the trust level for a tool, defaulting to 0 if not found
+func (c *Config) GetToolTrustLevel(toolName string) int {
+	if c.ToolTrustLevels == nil {
+		return 0
+	}
+	return c.ToolTrustLevels[toolName]
+}
+
+// SetToolTrustLevel sets the trust level for a tool and saves the configuration
+func (c *Config) SetToolTrustLevel(toolName string, trustLevel int) error {
+	if c.ToolTrustLevels == nil {
+		c.ToolTrustLevels = make(map[string]int)
+	}
+	c.ToolTrustLevels[toolName] = trustLevel
+	return c.Save()
 }

@@ -9,14 +9,15 @@ import (
 
 // Model represents an optimized input field for text entry
 type Model struct {
-	value     string         // Current input text
-	cursor    int            // Cursor position
-	width     int            // Available width for rendering
-	height    int            // Height of input box
-	style     lipgloss.Style // Style for the input box (unused but kept for compatibility)
-	prompt    string         // Prompt prefix before the input
-	loading   bool           // Whether the input is in loading state
-	ragStatus string         // RAG status message to display during loading
+	value       string         // Current input text
+	cursor      int            // Cursor position
+	width       int            // Available width for rendering
+	height      int            // Height of input box
+	style       lipgloss.Style // Style for the input box (unused but kept for compatibility)
+	prompt      string         // Prompt prefix before the input
+	loading     bool           // Whether the input is in loading state
+	ragStatus   string         // RAG status message to display during loading
+	placeholder string         // Custom placeholder text
 }
 
 // NewModel creates a new input model
@@ -29,14 +30,15 @@ func NewModel() Model {
 		Padding(0, 1) // Add horizontal padding for better readability
 
 	return Model{
-		value:     "",
-		cursor:    0,
-		width:     80, // Default width
-		height:    3,
-		style:     style,
-		prompt:    "> ",
-		loading:   false,
-		ragStatus: "",
+		value:       "",
+		cursor:      0,
+		width:       80, // Default width
+		height:      3,
+		style:       style,
+		prompt:      "> ",
+		loading:     false,
+		ragStatus:   "",
+		placeholder: "Type your question...",
 	}
 }
 
@@ -51,6 +53,11 @@ func (m *Model) SetLoading(loading bool) {
 // SetRAGStatus sets the RAG status message
 func (m *Model) SetRAGStatus(status string) {
 	m.ragStatus = status
+}
+
+// SetPlaceholder sets the placeholder text
+func (m *Model) SetPlaceholder(placeholder string) {
+	m.placeholder = placeholder
 }
 
 // IsLoading returns whether the input is in loading state
@@ -257,7 +264,7 @@ func (m *Model) View() string {
 
 		if valueLen == 0 {
 			// Simplified placeholder
-			content = m.prompt + "Type your question...█"
+			content = m.prompt + m.placeholder + "█"
 		} else if m.cursor == valueLen {
 			// Cursor at end - simple concatenation
 			content = m.prompt + m.value + "█"

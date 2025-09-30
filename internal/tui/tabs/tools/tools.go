@@ -18,8 +18,8 @@ import (
 type TrustLevel int
 
 const (
-	TrustNone    TrustLevel = iota // Not trusted, will prompt for each invocation
-	TrustOnce                      // Trusted for current invocation only
+	TrustNone    TrustLevel = iota // Not trusted, will block tool execution
+	AskForTrust                    // Ask user for permission before each invocation
 	TrustSession                   // Trusted for the entire session
 )
 
@@ -27,8 +27,8 @@ func (tl TrustLevel) String() string {
 	switch tl {
 	case TrustNone:
 		return "None"
-	case TrustOnce:
-		return "Once"
+	case AskForTrust:
+		return "Ask"
 	case TrustSession:
 		return "Session"
 	default:
@@ -183,7 +183,12 @@ func (m Model) handleTrustPromptKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		// Apply the selected trust level
 		if m.selectedIndex < len(m.tools) {
 			m.tools[m.selectedIndex].Trust = m.trustPrompt.SelectedLevel
-			m.message = "Trust level updated for " + m.tools[m.selectedIndex].Name
+			// Save the trust level to configuration
+			if err := m.config.SetToolTrustLevel(m.tools[m.selectedIndex].Name, int(m.trustPrompt.SelectedLevel)); err != nil {
+				m.message = "Failed to save trust level: " + err.Error()
+			} else {
+				m.message = "Trust level updated for " + m.tools[m.selectedIndex].Name
+			}
 		}
 		m.viewMode = ViewModeList
 		m.trustPrompt = nil
@@ -238,16 +243,37 @@ func (m Model) refreshTools() tea.Cmd {
 		// Get built-in tools from the registry
 		builtinTools := tooling.DefaultRegistry.GetAllTools()
 		for _, builtinTool := range builtinTools {
-			// Set default trust level based on tool type
-			defaultTrust := TrustNone
-			if builtinTool.Name() == "filesystem_read" {
-				defaultTrust = TrustSession // Filesystem read tool is trusted by default
+			// Load trust level from configuration, with fallback to defaults
+			var trustLevel TrustLevel
+			if m.config.ToolTrustLevels != nil {
+				if configuredTrustLevel, exists := m.config.ToolTrustLevels[builtinTool.Name()]; exists {
+					// Tool is explicitly configured
+					trustLevel = TrustLevel(configuredTrustLevel)
+				} else {
+					// Not configured yet, use defaults
+					defaultTrust := TrustNone
+					if builtinTool.Name() == "filesystem_read" {
+						defaultTrust = TrustSession // Filesystem read tool is trusted by default
+					}
+					trustLevel = defaultTrust
+					// Save the default to configuration (ignore error during initial setup)
+					_ = m.config.SetToolTrustLevel(builtinTool.Name(), int(defaultTrust))
+				}
+			} else {
+				// No configuration map, use defaults
+				defaultTrust := TrustNone
+				if builtinTool.Name() == "filesystem_read" {
+					defaultTrust = TrustSession // Filesystem read tool is trusted by default
+				}
+				trustLevel = defaultTrust
+				// Save the default to configuration (ignore error during initial setup)
+				_ = m.config.SetToolTrustLevel(builtinTool.Name(), int(defaultTrust))
 			}
 
 			tool := Tool{
 				Name:        builtinTool.Name(),
 				Description: builtinTool.Description(),
-				Trust:       defaultTrust,
+				Trust:       trustLevel,
 				Source:      "builtin",
 				UsageCount:  0,
 				APITool:     builtinTool.GetAPITool(),
@@ -396,10 +422,10 @@ func (m Model) renderTrustPrompt() string {
 	content.WriteString("Description: " + m.trustPrompt.Tool.Description + "\n\n")
 	content.WriteString("Select trust level:\n\n")
 
-	trustLevels := []TrustLevel{TrustNone, TrustOnce, TrustSession}
+	trustLevels := []TrustLevel{TrustNone, AskForTrust, TrustSession}
 	descriptions := []string{
-		"Prompt for permission on each use",
-		"Allow once, then revert to prompting",
+		"Block tool execution entirely",
+		"Ask for permission before each use",
 		"Trust for entire session",
 	}
 
@@ -449,12 +475,15 @@ func (m Model) GetTools() []Tool {
 
 // UpdateToolTrust updates the trust level for a specific tool
 func (m *Model) UpdateToolTrust(name string, trust TrustLevel) {
+	// Update the tool in the model if it exists
 	for i := range m.tools {
 		if m.tools[i].Name == name {
 			m.tools[i].Trust = trust
 			break
 		}
 	}
+	// Always save the trust level to configuration
+	_ = m.config.SetToolTrustLevel(name, int(trust))
 }
 
 // Helper functions

@@ -29,7 +29,7 @@ func TestNewModel(t *testing.T) {
 		t.Error("Active tab should default to ChatTab")
 	}
 
-	expectedTabs := []string{"Chat", "Settings", "RAG Collections"}
+	expectedTabs := []string{"Chat", "Settings", "RAG Collections", "Tools"}
 	if len(model.tabs) != len(expectedTabs) {
 		t.Errorf("Expected %d tabs, got %d", len(expectedTabs), len(model.tabs))
 	}
@@ -148,9 +148,16 @@ func TestModel_Update_TabSwitching(t *testing.T) {
 			shouldHaveCmd: true, // RAG tab initialization
 		},
 		{
-			name:          "tab forward from RAG (wrap around)",
+			name:          "tab forward from RAG (to Tools)",
 			keyMsg:        tea.KeyMsg{Type: tea.KeyTab},
 			startTab:      RAGTab,
+			expectedTab:   ToolsTab,
+			shouldHaveCmd: false,
+		},
+		{
+			name:          "tab forward from Tools (wrap around)",
+			keyMsg:        tea.KeyMsg{Type: tea.KeyTab},
+			startTab:      ToolsTab,
 			expectedTab:   ChatTab,
 			shouldHaveCmd: false,
 		},
@@ -158,8 +165,8 @@ func TestModel_Update_TabSwitching(t *testing.T) {
 			name:          "shift+tab backward from chat (wrap around)",
 			keyMsg:        tea.KeyMsg{Type: tea.KeyShiftTab},
 			startTab:      ChatTab,
-			expectedTab:   RAGTab,
-			shouldHaveCmd: true, // RAG tab initialization
+			expectedTab:   ToolsTab,
+			shouldHaveCmd: false,
 		},
 		{
 			name:          "shift+tab backward from config",
@@ -424,19 +431,19 @@ func TestModel_RenderTabBar(t *testing.T) {
 			name:          "normal width",
 			width:         80,
 			activeTab:     ChatTab,
-			shouldContain: []string{"Chat", "Config", "RAG"},
+			shouldContain: []string{"Chat", "Settings", "RAG Collections", "Tools"},
 		},
 		{
 			name:          "narrow width",
 			width:         25,
 			activeTab:     ConfigTab,
-			shouldContain: []string{"C", "S", "R"}, // Single letter tabs
+			shouldContain: []string{"Chat", "Config", "RAG", "Tools"}, // Medium names
 		},
 		{
 			name:          "very narrow width",
 			width:         10,
 			activeTab:     RAGTab,
-			shouldContain: []string{"C", "S", "R"}, // Single letter tabs
+			shouldContain: []string{"C", "S", "R", "T"}, // Single letter tabs
 		},
 	}
 
@@ -451,12 +458,10 @@ func TestModel_RenderTabBar(t *testing.T) {
 				t.Error("Tab bar should not be empty")
 			}
 
-			// For narrow terminals, should contain single letters
-			if tt.width < 30 {
-				for _, expected := range []string{"C", "S", "R"} {
-					if !containsAny(tabBar, expected) {
-						t.Errorf("Tab bar should contain %q for narrow width", expected)
-					}
+			// Check for expected content
+			for _, expected := range tt.shouldContain {
+				if !containsAny(tabBar, expected) {
+					t.Errorf("Tab bar should contain %q", expected)
 				}
 			}
 		})
