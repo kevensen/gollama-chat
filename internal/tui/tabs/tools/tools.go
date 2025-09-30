@@ -2,6 +2,7 @@ package tools
 
 import (
 	"context"
+	"fmt"
 	"strconv"
 	"strings"
 	"time"
@@ -11,7 +12,9 @@ import (
 	"github.com/ollama/ollama/api"
 
 	"github.com/kevensen/gollama-chat/internal/configuration"
+	"github.com/kevensen/gollama-chat/internal/logging"
 	"github.com/kevensen/gollama-chat/internal/tooling"
+	"github.com/kevensen/gollama-chat/internal/tooling/mcp"
 )
 
 // TrustLevel represents the level of trust for a tool
@@ -43,14 +46,17 @@ type Tool struct {
 	Trust       TrustLevel `json:"trust"`
 	LastUsed    *time.Time `json:"last_used"`
 	UsageCount  int        `json:"usage_count"`
-	Source      string     `json:"source"` // "builtin", "mcp", etc.
-	APITool     *api.Tool  `json:"-"`      // The actual Ollama API tool
+	Source      string     `json:"source"`      // "builtin", "mcp", etc.
+	ServerName  string     `json:"server_name"` // For MCP tools, the server name
+	Available   bool       `json:"available"`   // Whether the tool is currently available
+	APITool     *api.Tool  `json:"-"`           // The actual Ollama API tool
 }
 
 // Model represents the tools tab model
 type Model struct {
 	config        *configuration.Config
 	ctx           context.Context
+	mcpManager    *mcp.Manager
 	tools         []Tool
 	selectedIndex int
 	width         int
@@ -80,10 +86,11 @@ type TrustPrompt struct {
 }
 
 // NewModel creates a new tools model
-func NewModel(ctx context.Context, config *configuration.Config) Model {
+func NewModel(ctx context.Context, config *configuration.Config, mcpManager *mcp.Manager) Model {
 	return Model{
 		config:        config,
 		ctx:           ctx,
+		mcpManager:    mcpManager,
 		tools:         []Tool{}, // Start with empty tools list
 		selectedIndex: 0,
 		viewMode:      ViewModeList,
@@ -107,14 +114,24 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.height = msg.Height
 
 	case ToolsRefreshedMsg:
+		logger := logging.WithComponent("tools-tab")
+		logger.Debug("Received ToolsRefreshedMsg", "toolCount", len(msg.Tools), "hasError", msg.Error != nil)
+
 		m.tools = msg.Tools
 		if msg.Error != nil {
 			m.message = "Error refreshing tools: " + msg.Error.Error()
+			logger.Error("Tools refresh error", "error", msg.Error)
 		} else {
 			m.message = "Tools refreshed successfully"
+			logger.Info("Tools refreshed in UI", "toolCount", len(m.tools))
 		}
 		if len(m.tools) > 0 && m.selectedIndex >= len(m.tools) {
 			m.selectedIndex = len(m.tools) - 1
+		}
+
+		// Log each tool for debugging
+		for i, tool := range m.tools {
+			logger.Debug("Tool in UI list", "index", i, "name", tool.Name, "source", tool.Source, "available", tool.Available)
 		}
 
 	case tea.KeyMsg:
@@ -238,11 +255,19 @@ func (m Model) showToolDetails() (tea.Model, tea.Cmd) {
 // refreshTools refreshes the list of available tools
 func (m Model) refreshTools() tea.Cmd {
 	return tea.Cmd(func() tea.Msg {
+		logger := logging.WithComponent("tools-tab")
+		logger.Info("Refreshing tools list for UI")
+
 		var tools []Tool
 
 		// Get built-in tools from the registry
+		logger.Debug("Getting built-in tools from registry")
 		builtinTools := tooling.DefaultRegistry.GetAllTools()
+		logger.Info("Found built-in tools", "count", len(builtinTools))
+
 		for _, builtinTool := range builtinTools {
+			logger.Debug("Processing built-in tool", "name", builtinTool.Name(), "description", builtinTool.Description())
+
 			// Load trust level from configuration, with fallback to defaults
 			var trustLevel TrustLevel
 			if m.config.ToolTrustLevels != nil {
@@ -275,22 +300,112 @@ func (m Model) refreshTools() tea.Cmd {
 				Description: builtinTool.Description(),
 				Trust:       trustLevel,
 				Source:      "builtin",
+				ServerName:  "",
+				Available:   true,
 				UsageCount:  0,
 				APITool:     builtinTool.GetAPITool(),
 			}
 			tools = append(tools, tool)
+			logger.Debug("Added built-in tool to list", "name", tool.Name, "trust", tool.Trust.String())
 		}
 
-		// TODO: In the future, this would also:
-		// 1. Discover MCP servers
-		// 2. Enumerate their tools
-		// 3. Add them to the tools list
+		// Get MCP tools from all servers (now with timeout protection in manager)
+		logger.Debug("Getting MCP tools from servers")
+		serverTools := m.mcpManager.GetAllTools()
+		serverStatuses := m.mcpManager.GetAllServerStatuses()
+
+		mcpToolCount := 0
+		for serverName, mcpTools := range serverTools {
+			serverStatus := serverStatuses[serverName]
+			available := serverStatus == mcp.StatusRunning
+
+			logger.Debug("Processing MCP server tools", "server", serverName, "status", serverStatus.String(), "available", available, "toolCount", len(mcpTools))
+
+			for _, mcpTool := range mcpTools {
+				mcpToolCount++
+				// Create namespaced tool name
+				fullName := serverName + "." + mcpTool.Name
+
+				logger.Debug("Processing MCP tool", "server", serverName, "tool", mcpTool.Name, "fullName", fullName, "available", available)
+
+				// Load trust level from configuration
+				var trustLevel TrustLevel
+				if m.config.ToolTrustLevels != nil {
+					if configuredTrustLevel, exists := m.config.ToolTrustLevels[fullName]; exists {
+						trustLevel = TrustLevel(configuredTrustLevel)
+					} else {
+						// Default to ask for MCP tools
+						trustLevel = AskForTrust
+						_ = m.config.SetToolTrustLevel(fullName, int(AskForTrust))
+					}
+				} else {
+					trustLevel = AskForTrust
+					_ = m.config.SetToolTrustLevel(fullName, int(AskForTrust))
+				}
+
+				// Convert MCP tool to Ollama API tool format
+				apiTool := &api.Tool{
+					Type: "function",
+					Function: api.ToolFunction{
+						Name:        fullName,
+						Description: mcpTool.Description,
+						Parameters:  convertMCPSchemaToOllamaParams(mcpTool.InputSchema),
+					},
+				}
+
+				tool := Tool{
+					Name:        fullName,
+					Description: mcpTool.Description,
+					Trust:       trustLevel,
+					Source:      "mcp",
+					ServerName:  serverName,
+					Available:   available,
+					UsageCount:  0,
+					APITool:     apiTool,
+				}
+				tools = append(tools, tool)
+				logger.Debug("Added MCP tool to list", "server", serverName, "tool", mcpTool.Name, "fullName", fullName, "trust", trustLevel.String(), "available", available)
+			}
+		}
+
+		logger.Info("Tool refresh completed", "totalTools", len(tools), "builtinTools", len(builtinTools), "mcpTools", mcpToolCount)
 
 		return ToolsRefreshedMsg{
 			Tools: tools,
 			Error: nil,
 		}
 	})
+}
+
+// convertMCPSchemaToOllamaParams converts MCP tool schema to Ollama parameters format
+func convertMCPSchemaToOllamaParams(schema mcp.ToolSchema) api.ToolFunctionParameters {
+	params := api.ToolFunctionParameters{
+		Type:       schema.Type,
+		Properties: make(map[string]api.ToolProperty),
+		Required:   schema.Required,
+	}
+
+	for propName, propSchema := range schema.Properties {
+		if propMap, ok := propSchema.(map[string]interface{}); ok {
+			property := api.ToolProperty{}
+
+			if propType, exists := propMap["type"]; exists {
+				if typeStr, ok := propType.(string); ok {
+					property.Type = api.PropertyType{typeStr}
+				}
+			}
+
+			if description, exists := propMap["description"]; exists {
+				if descStr, ok := description.(string); ok {
+					property.Description = descStr
+				}
+			}
+
+			params.Properties[propName] = property
+		}
+	}
+
+	return params
 }
 
 // ToolsRefreshedMsg is sent when tools have been refreshed
@@ -316,8 +431,10 @@ func (m Model) renderToolsList() string {
 		Padding(1, 2)
 
 	contentStyle := lipgloss.NewStyle().
-		Padding(0, 2).
-		Height(m.height - 6) // Reserve space for title, instructions, and message
+		Padding(1, 2).
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(lipgloss.Color("#8A7FD8")).
+		Height(m.height - 8) // Reserve space for title, instructions, message, and border
 
 	instructionsStyle := lipgloss.NewStyle().
 		Foreground(lipgloss.Color("8")).
@@ -332,69 +449,159 @@ func (m Model) renderToolsList() string {
 		content.WriteString("• Built-in tools are registered\n\n")
 		content.WriteString("Press 'r' to refresh the tools list.")
 	} else {
-		// Calculate visible range for scrolling
-		visibleHeight := m.height - 8 // Account for UI chrome
-		startIdx := 0
-		endIdx := len(m.tools)
+		// Group tools by source
+		builtinTools := []Tool{}
+		mcpToolsByServer := make(map[string][]Tool)
 
-		if visibleHeight > 0 && len(m.tools) > visibleHeight {
-			if m.selectedIndex >= m.scrollOffset+visibleHeight {
-				m.scrollOffset = m.selectedIndex - visibleHeight + 1
-			}
-			if m.selectedIndex < m.scrollOffset {
-				m.scrollOffset = m.selectedIndex
-			}
-			startIdx = m.scrollOffset
-			endIdx = min(m.scrollOffset+visibleHeight, len(m.tools))
-		}
-
-		for i := startIdx; i < endIdx; i++ {
-			tool := m.tools[i]
-			prefix := "  "
-			style := lipgloss.NewStyle()
-
-			if i == m.selectedIndex {
-				prefix = "▶ "
-				style = style.
-					Bold(true).
-					Foreground(lipgloss.Color("15")).
-					Background(lipgloss.Color("8"))
-			}
-
-			line := prefix + tool.Name + " (" + tool.Source + ") [" + tool.Trust.String() + "]"
-			content.WriteString(style.Render(line) + "\n")
-
-			if i == m.selectedIndex && tool.Description != "" {
-				desc := "    " + tool.Description
-				if len(desc) > m.width-6 {
-					desc = desc[:m.width-9] + "..."
+		for _, tool := range m.tools {
+			if tool.Source == "builtin" {
+				builtinTools = append(builtinTools, tool)
+			} else if tool.Source == "mcp" {
+				if mcpToolsByServer[tool.ServerName] == nil {
+					mcpToolsByServer[tool.ServerName] = []Tool{}
 				}
-				content.WriteString(lipgloss.NewStyle().
-					Foreground(lipgloss.Color("8")).
-					Render(desc) + "\n")
+				mcpToolsByServer[tool.ServerName] = append(mcpToolsByServer[tool.ServerName], tool)
 			}
 		}
 
-		if len(m.tools) > visibleHeight && visibleHeight > 0 {
-			scrollInfo := lipgloss.NewStyle().
-				Foreground(lipgloss.Color("8")).
-				Render("Showing " + strconv.Itoa(startIdx+1) + "-" + strconv.Itoa(endIdx) + " of " + strconv.Itoa(len(m.tools)))
-			content.WriteString("\n" + scrollInfo)
+		// Render built-in tools
+		if len(builtinTools) > 0 {
+			content.WriteString(lipgloss.NewStyle().
+				Bold(true).
+				Foreground(lipgloss.Color("6")).
+				Render("Built-in Tools"))
+			content.WriteString("\n")
+
+			for _, tool := range builtinTools {
+				content.WriteString(m.renderTool(tool, m.getToolIndex(tool)))
+				content.WriteString("\n")
+			}
+			content.WriteString("\n")
+		}
+
+		// Render MCP tools grouped by server
+		for serverName, tools := range mcpToolsByServer {
+			// Server header with status
+			serverStatus := m.mcpManager.GetServerStatus(serverName)
+			statusColor := "241" // Gray
+			statusText := "●"
+			switch serverStatus {
+			case mcp.StatusRunning:
+				statusColor = "46" // Green
+			case mcp.StatusStarting:
+				statusColor = "226" // Yellow
+			case mcp.StatusError:
+				statusColor = "196" // Red
+			}
+
+			statusIndicator := lipgloss.NewStyle().
+				Foreground(lipgloss.Color(statusColor)).
+				Render(statusText)
+
+			serverHeader := lipgloss.NewStyle().
+				Bold(true).
+				Foreground(lipgloss.Color("5")).
+				Render(fmt.Sprintf("MCP Server: %s %s (%s)",
+					statusIndicator, serverName, serverStatus.String()))
+
+			content.WriteString(serverHeader)
+			content.WriteString("\n")
+
+			// Render tools for this server
+			if serverStatus != mcp.StatusRunning {
+				// Show grayed out tools if server is not running
+				grayStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("241"))
+				content.WriteString(grayStyle.Render("  Server not running - tools unavailable"))
+				content.WriteString("\n")
+			} else {
+				for _, tool := range tools {
+					content.WriteString(m.renderTool(tool, m.getToolIndex(tool)))
+					content.WriteString("\n")
+				}
+			}
+			content.WriteString("\n")
 		}
 	}
 
-	instructions := "Navigation: ↑/↓ or j/k • Enter: Configure Trust • d: Details • r: Refresh • Tab: Switch tabs"
+	// Render title, instructions, content, and message
+	title := titleStyle.Render("Tools")
+	instructions := instructionsStyle.Render("↑/↓: navigate • Enter: toggle trust level • r: refresh • q: quit")
 
-	var sections []string
-	sections = append(sections, titleStyle.Render("🔧 Tools"))
-	sections = append(sections, contentStyle.Render(content.String()))
-	sections = append(sections, instructionsStyle.Render(instructions))
-
+	var messageSection string
 	if m.message != "" {
-		sections = append(sections, m.messageStyle.Render(m.message))
+		messageSection = "\n" + m.messageStyle.Render(m.message)
 	}
 
-	return lipgloss.JoinVertical(lipgloss.Left, sections...)
+	return lipgloss.JoinVertical(
+		lipgloss.Left,
+		title,
+		instructions,
+		contentStyle.Render(content.String()),
+		messageSection,
+	)
+}
+
+// renderTool renders a single tool with proper styling based on selection and availability
+func (m Model) renderTool(tool Tool, index int) string {
+	prefix := "  "
+	style := lipgloss.NewStyle()
+
+	if index == m.selectedIndex {
+		prefix = "▶ "
+		style = style.
+			Bold(true).
+			Foreground(lipgloss.Color("15")).
+			Background(lipgloss.Color("8"))
+	}
+
+	// Add availability indicator for MCP tools
+	availabilityIndicator := ""
+	if tool.Source == "mcp" {
+		if tool.Available {
+			availabilityIndicator = lipgloss.NewStyle().
+				Foreground(lipgloss.Color("46")).
+				Render("●") + " "
+		} else {
+			availabilityIndicator = lipgloss.NewStyle().
+				Foreground(lipgloss.Color("241")).
+				Render("●") + " "
+			// Gray out unavailable tools
+			style = style.Foreground(lipgloss.Color("241"))
+		}
+	}
+
+	// Format tool name (remove server prefix for display)
+	displayName := tool.Name
+	if tool.Source == "mcp" && strings.Contains(tool.Name, ".") {
+		parts := strings.SplitN(tool.Name, ".", 2)
+		if len(parts) == 2 {
+			displayName = parts[1] // Show just the tool name, not server.tool
+		}
+	}
+
+	line := prefix + availabilityIndicator + displayName +
+		" [" + tool.Trust.String() + "]"
+
+	if tool.Description != "" {
+		maxDescLen := 50
+		desc := tool.Description
+		if len(desc) > maxDescLen {
+			desc = desc[:maxDescLen-3] + "..."
+		}
+		line += " - " + desc
+	}
+
+	return style.Render(line)
+}
+
+// getToolIndex returns the index of a tool in the tools list
+func (m Model) getToolIndex(targetTool Tool) int {
+	for i, tool := range m.tools {
+		if tool.Name == targetTool.Name && tool.Source == targetTool.Source {
+			return i
+		}
+	}
+	return -1
 }
 
 // renderTrustPrompt renders the trust configuration prompt
@@ -411,7 +618,7 @@ func (m Model) renderTrustPrompt() string {
 	contentStyle := lipgloss.NewStyle().
 		Padding(1, 2).
 		Border(lipgloss.RoundedBorder()).
-		BorderForeground(lipgloss.Color("8"))
+		BorderForeground(lipgloss.Color("#8A7FD8"))
 
 	instructionsStyle := lipgloss.NewStyle().
 		Foreground(lipgloss.Color("8")).

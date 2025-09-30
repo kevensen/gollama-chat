@@ -13,11 +13,6 @@ import (
 	"github.com/kevensen/gollama-chat/internal/tooling"
 )
 
-// toolPermissionRequestMsg is sent when a tool requires permission
-type toolPermissionRequestMsg struct {
-	request ToolPermissionRequest
-}
-
 // sendMessage sends a message to Ollama using the Ollama API client
 func (m Model) sendMessage(prompt string) tea.Cmd {
 	return tea.Cmd(func() tea.Msg {
@@ -36,13 +31,7 @@ func (m Model) sendMessage(prompt string) tea.Cmd {
 			fullPrompt = prompt
 		}
 
-		// Create Ollama client with better error handling
-		_, err := api.ClientFromEnvironment()
-		if err != nil {
-			return responseMsg{err: fmt.Errorf("failed to create Ollama client: %w", err)}
-		}
-
-		// Override the client's base URL with the configured Ollama URL
+		// Create Ollama client with the configured URL
 		baseURL, err := url.Parse(m.config.OllamaURL)
 		if err != nil {
 			return responseMsg{err: fmt.Errorf("invalid Ollama URL %s: %w", m.config.OllamaURL, err)}
@@ -114,15 +103,12 @@ func (m Model) sendMessage(prompt string) tea.Cmd {
 			"repeat_penalty": 1.1,
 		}
 
-		// Get available tools from the registry
-		var tools api.Tools // Use the correct api.Tools type ([]api.Tool)
-		builtinTools := tooling.DefaultRegistry.GetAllTools()
-		for _, tool := range builtinTools {
-			apiTool := tool.GetAPITool()
-			if apiTool != nil {
-				tools = append(tools, *apiTool) // Dereference the pointer
-			}
-		}
+		// SECURITY FIX: Do not send tools to Ollama to prevent server-side execution
+		// that bypasses local authorization. All tool calls must go through local
+		// authorization as per AGENTS.md requirements.
+		//
+		// Previous code sent tools directly to Ollama, allowing models to execute
+		// tools server-side without user consent, violating the authorization requirements.
 
 		// Create chat request with stream enabled (true is default, but we're explicit)
 		stream := true
@@ -131,7 +117,7 @@ func (m Model) sendMessage(prompt string) tea.Cmd {
 			Messages: messages,
 			Stream:   &stream,
 			Options:  options,
-			Tools:    tools, // Add tools to enable function calling
+			// Tools:    nil, // Explicitly do not send tools to prevent unauthorized execution
 		}
 
 		// Use ChatStream for real-time response with enhanced error handling
@@ -189,6 +175,7 @@ func (m Model) sendMessage(prompt string) tea.Cmd {
 						Role:      "assistant",
 						Content:   responseContent,
 						Time:      time.Now(),
+						ULID:      generateULID(),
 						ToolCalls: toolCallInfos,
 					}
 					additionalMessages = append(additionalMessages, assistantWithToolsMsg)
@@ -200,6 +187,7 @@ func (m Model) sendMessage(prompt string) tea.Cmd {
 						Role:     "tool",                // Use "tool" role to distinguish from regular messages
 						Content:  toolResultMsg.Content, // Store clean content without prefix
 						Time:     time.Now(),
+						ULID:     generateULID(),
 						ToolName: toolResultMsg.ToolName,
 						Hidden:   true, // Hide tool messages from TUI display
 					}
@@ -222,7 +210,7 @@ func (m Model) sendMessage(prompt string) tea.Cmd {
 					Messages: messages,
 					Stream:   &stream,
 					Options:  options,
-					Tools:    tools,
+					// Tools:    nil, // Explicitly do not send tools to prevent unauthorized execution
 				}
 
 				var followUpResponse strings.Builder
@@ -254,13 +242,23 @@ func (m Model) executeToolCallsAndCreateMessages(toolCalls []api.ToolCall) ([]ap
 	var messages []api.Message
 
 	for _, toolCall := range toolCalls {
-		// Get the tool from the registry
-		tool, exists := tooling.DefaultRegistry.GetTool(toolCall.Function.Name)
+		// Get the tool from the registry (unified tool that supports both builtin and MCP)
+		tool, exists := tooling.DefaultRegistry.GetUnifiedTool(toolCall.Function.Name)
 		if !exists {
 			// Create error message for unknown tool
 			messages = append(messages, api.Message{
 				Role:     "tool",
 				Content:  fmt.Sprintf("Error: Tool '%s' not found", toolCall.Function.Name),
+				ToolName: toolCall.Function.Name,
+			})
+			continue
+		}
+
+		// Check if tool is available (especially important for MCP tools)
+		if !tool.Available {
+			messages = append(messages, api.Message{
+				Role:     "tool",
+				Content:  fmt.Sprintf("Error: Tool '%s' is not available (server may be down)", toolCall.Function.Name),
 				ToolName: toolCall.Function.Name,
 			})
 			continue
@@ -302,8 +300,8 @@ func (m Model) executeToolCallsAndCreateMessages(toolCalls []api.ToolCall) ([]ap
 			continue
 		}
 
-		// Execute the tool with the provided arguments
-		result, err := tool.Execute(toolCall.Function.Arguments)
+		// Execute the tool with the provided arguments using the unified tool system
+		result, err := tooling.DefaultRegistry.ExecuteTool(toolCall.Function.Name, toolCall.Function.Arguments)
 		if err != nil {
 			// Create error message for tool execution failure
 			messages = append(messages, api.Message{

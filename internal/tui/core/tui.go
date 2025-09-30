@@ -4,9 +4,13 @@ import (
 	"context"
 
 	"github.com/kevensen/gollama-chat/internal/configuration"
+	"github.com/kevensen/gollama-chat/internal/logging"
+	"github.com/kevensen/gollama-chat/internal/tooling"
+	mcpManager "github.com/kevensen/gollama-chat/internal/tooling/mcp"
 	"github.com/kevensen/gollama-chat/internal/tui/tabs/chat"
 	configTab "github.com/kevensen/gollama-chat/internal/tui/tabs/configuration"
 	"github.com/kevensen/gollama-chat/internal/tui/tabs/configuration/utils/connection"
+	mcpTab "github.com/kevensen/gollama-chat/internal/tui/tabs/mcp"
 	ragTab "github.com/kevensen/gollama-chat/internal/tui/tabs/rag"
 	toolsTab "github.com/kevensen/gollama-chat/internal/tui/tabs/tools"
 
@@ -22,32 +26,54 @@ const (
 	ConfigTab
 	RAGTab
 	ToolsTab
+	MCPTab
 )
 
 // Model represents the main TUI model
 type Model struct {
+	ctx         context.Context
 	config      *configuration.Config
+	mcpManager  *mcpManager.Manager
 	activeTab   Tab
 	tabs        []string
 	chatModel   chat.Model
 	configModel configTab.Model
 	ragModel    ragTab.Model
 	toolsModel  toolsTab.Model
+	mcpModel    mcpTab.Model
 	width       int
 	height      int
 }
 
 // NewModel creates a new TUI model
-func NewModel(ctx context.Context, config *configuration.Config) Model {
-	return Model{
+func NewModel(ctx context.Context, config *configuration.Config) *Model {
+	logger := logging.WithComponent("tui-core")
+	logger.Debug("Creating new TUI model")
+
+	// Create shared MCP manager
+	sharedMCPManager := mcpManager.NewManager(config)
+	logger.Debug("Created MCP manager")
+
+	// Set the MCP manager on the DefaultRegistry so it can be used by the chat model
+	tooling.DefaultRegistry.SetMCPManager(sharedMCPManager)
+	logger.Debug("Set MCP manager on DefaultRegistry")
+
+	logger.Debug("Initializing tab models")
+	model := &Model{
+		ctx:         ctx,
 		config:      config,
+		mcpManager:  sharedMCPManager,
 		activeTab:   ChatTab,
-		tabs:        []string{"Chat", "Settings", "RAG Collections", "Tools"},
+		tabs:        []string{"Chat", "Settings", "RAG Collections", "Tools", "MCP Servers"},
 		chatModel:   chat.NewModel(ctx, config),
 		configModel: configTab.NewModel(config),
 		ragModel:    ragTab.NewModel(ctx, config),
-		toolsModel:  toolsTab.NewModel(ctx, config),
+		toolsModel:  toolsTab.NewModel(ctx, config, sharedMCPManager),
+		mcpModel:    mcpTab.NewModel(ctx, config, sharedMCPManager),
 	}
+
+	logger.Info("TUI model created successfully")
+	return model
 }
 
 // Init initializes the TUI model
@@ -57,6 +83,8 @@ func (m Model) Init() tea.Cmd {
 		m.configModel.Init(),
 		m.ragModel.Init(),
 		m.toolsModel.Init(),
+		m.mcpModel.Init(),
+		startMCPServersCmd(m.ctx, m.mcpManager),
 	)
 }
 
@@ -108,16 +136,30 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			cmds = append(cmds, toolsCmd)
 		}
 
+		mcpModel, mcpCmd := m.mcpModel.Update(tea.WindowSizeMsg{
+			Width:  m.width,
+			Height: m.height,
+		})
+		m.mcpModel = mcpModel
+		if mcpCmd != nil {
+			cmds = append(cmds, mcpCmd)
+		}
+
 	case tea.KeyMsg:
+		logger := logging.WithComponent("tui-core")
 		switch msg.String() {
 		case "ctrl+c", "q":
+			logger.Info("User requested quit")
 			return m, tea.Quit
 		case "tab":
 			// Switch tabs
 			oldTab := m.activeTab
 			m.activeTab = (m.activeTab + 1) % Tab(len(m.tabs))
+			logger.Debug("Tab switch", "from", oldTab, "to", m.activeTab)
+
 			// Trigger initialization when switching to RAG tab
 			if oldTab != RAGTab && m.activeTab == RAGTab {
+				logger.Debug("Initializing RAG tab")
 				// Test connection when entering RAG tab
 				ragModel, ragCmd := m.ragModel.Update(tea.WindowSizeMsg{Width: m.width, Height: m.height})
 				m.ragModel = ragModel.(ragTab.Model)
@@ -132,6 +174,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			// Trigger initialization when switching to Tools tab
 			if oldTab != ToolsTab && m.activeTab == ToolsTab {
+				logger.Debug("Initializing Tools tab")
 				// Refresh tools when entering Tools tab
 				toolsModel, toolsCmd := m.toolsModel.Update(tea.WindowSizeMsg{Width: m.width, Height: m.height})
 				m.toolsModel = toolsModel.(toolsTab.Model)
@@ -144,8 +187,24 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					cmd = initCmd
 				}
 			}
+			// Trigger initialization when switching to MCP tab
+			if oldTab != MCPTab && m.activeTab == MCPTab {
+				logger.Debug("Initializing MCP tab")
+				// Refresh servers when entering MCP tab
+				mcpModel, mcpCmd := m.mcpModel.Update(tea.WindowSizeMsg{Width: m.width, Height: m.height})
+				m.mcpModel = mcpModel
+				initCmd := m.mcpModel.Init()
+				if mcpCmd != nil && initCmd != nil {
+					cmd = tea.Batch(mcpCmd, initCmd)
+				} else if mcpCmd != nil {
+					cmd = mcpCmd
+				} else if initCmd != nil {
+					cmd = initCmd
+				}
+			}
 			// Sync selected collections when switching to Chat tab
 			if m.activeTab == ChatTab {
+				logger.Debug("Syncing RAG collections for Chat tab")
 				m.syncRAGCollections()
 			}
 		case "shift+tab":
@@ -180,6 +239,20 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					cmd = initCmd
 				}
 			}
+			// Trigger initialization when switching to MCP tab
+			if oldTab != MCPTab && m.activeTab == MCPTab {
+				// Refresh servers when entering MCP tab
+				mcpModel, mcpCmd := m.mcpModel.Update(tea.WindowSizeMsg{Width: m.width, Height: m.height})
+				m.mcpModel = mcpModel
+				initCmd := m.mcpModel.Init()
+				if mcpCmd != nil && initCmd != nil {
+					cmd = tea.Batch(mcpCmd, initCmd)
+				} else if mcpCmd != nil {
+					cmd = mcpCmd
+				} else if initCmd != nil {
+					cmd = initCmd
+				}
+			}
 			// Sync selected collections when switching to Chat tab
 			if m.activeTab == ChatTab {
 				m.syncRAGCollections()
@@ -203,6 +276,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				toolsModel, toolsCmd := m.toolsModel.Update(msg)
 				m.toolsModel = toolsModel.(toolsTab.Model)
 				cmd = toolsCmd
+			case MCPTab:
+				mcpModel, mcpCmd := m.mcpModel.Update(msg)
+				m.mcpModel = mcpModel
+				cmd = mcpCmd
 			}
 		}
 
@@ -257,6 +334,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				toolsModel, toolsCmd := m.toolsModel.Update(msg)
 				m.toolsModel = toolsModel.(toolsTab.Model)
 				cmd = toolsCmd
+			case MCPTab:
+				mcpModel, mcpCmd := m.mcpModel.Update(msg)
+				m.mcpModel = mcpModel
+				cmd = mcpCmd
 			}
 		}
 	}
@@ -317,6 +398,8 @@ func (m Model) View() string {
 		content = m.ragModel.View()
 	case ToolsTab:
 		content = m.toolsModel.View()
+	case MCPTab:
+		content = m.mcpModel.View()
 	}
 
 	// Style content to fit available space
@@ -356,18 +439,18 @@ func (m Model) renderTabBar() string {
 
 	// Create compact tab names based on available width for maximum visibility
 	var tabNames []string
-	if m.width >= 35 {
+	if m.width >= 40 {
 		// Full tab names for reasonable width
-		tabNames = []string{"Chat", "Settings", "RAG Collections", "Tools"}
-	} else if m.width >= 15 {
+		tabNames = []string{"Chat", "Settings", "RAG Collections", "Tools", "MCP Servers"}
+	} else if m.width >= 20 {
 		// Medium names for moderate width
-		tabNames = []string{"Chat", "Config", "RAG", "Tools"}
-	} else if m.width >= 10 {
+		tabNames = []string{"Chat", "Config", "RAG", "Tools", "MCP"}
+	} else if m.width >= 12 {
 		// Short names for narrow terminals
-		tabNames = []string{"C", "S", "R", "T"}
-	} else if m.width >= 6 {
+		tabNames = []string{"C", "S", "R", "T", "M"}
+	} else if m.width >= 8 {
 		// Ultra-compact for very narrow terminals
-		tabNames = []string{"C", "S", "R", "T"}
+		tabNames = []string{"C", "S", "R", "T", "M"}
 	} else {
 		// Minimal representation for extremely narrow terminals (width 2-5)
 		tabNames = []string{"C"}
@@ -397,12 +480,12 @@ func (m Model) renderTabBar() string {
 	tabContent := lipgloss.JoinHorizontal(lipgloss.Top, tabs...)
 	if tabContent == "" {
 		// Progressive fallbacks for extreme cases
-		if m.width >= 20 {
-			tabContent = "Chat Settings RAG Tools"
-		} else if m.width >= 10 {
-			tabContent = "C S R T"
-		} else if m.width >= 4 {
-			tabContent = "CSRT"
+		if m.width >= 25 {
+			tabContent = "Chat Settings RAG Tools MCP"
+		} else if m.width >= 12 {
+			tabContent = "C S R T M"
+		} else if m.width >= 5 {
+			tabContent = "CSRTM"
 		} else {
 			tabContent = "C" // Absolute minimum
 		}
@@ -471,5 +554,19 @@ func (m *Model) syncRAGCollections() {
 	ragService := m.chatModel.GetRAGService()
 	if ragService != nil {
 		ragService.UpdateSelectedCollections(selectedCollectionsMap)
+	}
+}
+
+// startMCPServersCmd creates a command to start enabled MCP servers
+func startMCPServersCmd(ctx context.Context, manager *mcpManager.Manager) tea.Cmd {
+	return func() tea.Msg {
+		// Use a background context for server startup
+		if err := manager.StartEnabledServers(ctx); err != nil {
+			// For now, we'll silently handle the error
+			// In the future, we might want to create a specific message type
+			// to handle MCP startup errors in the UI
+			return nil
+		}
+		return nil
 	}
 }

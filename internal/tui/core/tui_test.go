@@ -29,7 +29,7 @@ func TestNewModel(t *testing.T) {
 		t.Error("Active tab should default to ChatTab")
 	}
 
-	expectedTabs := []string{"Chat", "Settings", "RAG Collections", "Tools"}
+	expectedTabs := []string{"Chat", "Settings", "RAG Collections", "Tools", "MCP Servers"}
 	if len(model.tabs) != len(expectedTabs) {
 		t.Errorf("Expected %d tabs, got %d", len(expectedTabs), len(model.tabs))
 	}
@@ -155,9 +155,16 @@ func TestModel_Update_TabSwitching(t *testing.T) {
 			shouldHaveCmd: false,
 		},
 		{
-			name:          "tab forward from Tools (wrap around)",
+			name:          "tab forward from Tools",
 			keyMsg:        tea.KeyMsg{Type: tea.KeyTab},
 			startTab:      ToolsTab,
+			expectedTab:   MCPTab,
+			shouldHaveCmd: false,
+		},
+		{
+			name:          "tab forward from MCP (wrap around)",
+			keyMsg:        tea.KeyMsg{Type: tea.KeyTab},
+			startTab:      MCPTab,
 			expectedTab:   ChatTab,
 			shouldHaveCmd: false,
 		},
@@ -165,7 +172,7 @@ func TestModel_Update_TabSwitching(t *testing.T) {
 			name:          "shift+tab backward from chat (wrap around)",
 			keyMsg:        tea.KeyMsg{Type: tea.KeyShiftTab},
 			startTab:      ChatTab,
-			expectedTab:   ToolsTab,
+			expectedTab:   MCPTab,
 			shouldHaveCmd: false,
 		},
 		{
@@ -180,6 +187,20 @@ func TestModel_Update_TabSwitching(t *testing.T) {
 			keyMsg:        tea.KeyMsg{Type: tea.KeyShiftTab},
 			startTab:      RAGTab,
 			expectedTab:   ConfigTab,
+			shouldHaveCmd: false,
+		},
+		{
+			name:          "shift+tab backward from Tools",
+			keyMsg:        tea.KeyMsg{Type: tea.KeyShiftTab},
+			startTab:      ToolsTab,
+			expectedTab:   RAGTab,
+			shouldHaveCmd: false,
+		},
+		{
+			name:          "shift+tab backward from MCP",
+			keyMsg:        tea.KeyMsg{Type: tea.KeyShiftTab},
+			startTab:      MCPTab,
+			expectedTab:   ToolsTab,
 			shouldHaveCmd: false,
 		},
 	}

@@ -14,6 +14,26 @@ import (
 var contextSizeCache = make(map[string]int)
 var contextSizeCacheMutex sync.RWMutex
 
+// Optional: channel-based service for model context caching
+// This can be enabled via configuration for testing the new approach
+var modelContextService *ModelContextService
+
+// EnableChannelBasedCache enables the new channel-based caching service
+// This is for testing and gradual migration purposes
+func EnableChannelBasedCache() {
+	if modelContextService == nil {
+		modelContextService = NewModelContextService()
+	}
+}
+
+// DisableChannelBasedCache disables the channel-based service and falls back to mutex cache
+func DisableChannelBasedCache() {
+	if modelContextService != nil {
+		// Note: In production, we'd want proper shutdown with context
+		modelContextService = nil
+	}
+}
+
 // OllamaModelInfo represents the model_info section of the show API response
 type OllamaModelInfo struct {
 	ContextLength        int `json:"llama.context_length"`
@@ -27,14 +47,23 @@ type OllamaShowResponse struct {
 
 // getModelContextSizeFromAPI fetches the context window size from the Ollama API
 func getModelContextSizeFromAPI(modelName string, ollamaURL string) (int, error) {
-	// Check cache first
+	// Check cache first (with optional channel-based service)
 	cacheKey := modelName + "@" + ollamaURL
-	contextSizeCacheMutex.RLock()
-	if size, found := contextSizeCache[cacheKey]; found {
+
+	// Try new service first if available
+	if modelContextService != nil {
+		if size, found := modelContextService.Get(cacheKey); found {
+			return size, nil
+		}
+	} else {
+		// Fallback to mutex-based cache
+		contextSizeCacheMutex.RLock()
+		if size, found := contextSizeCache[cacheKey]; found {
+			contextSizeCacheMutex.RUnlock()
+			return size, nil
+		}
 		contextSizeCacheMutex.RUnlock()
-		return size, nil
 	}
-	contextSizeCacheMutex.RUnlock()
 
 	// Prepare the API request
 	payload := map[string]interface{}{
@@ -75,9 +104,15 @@ func getModelContextSizeFromAPI(modelName string, ollamaURL string) (int, error)
 
 	// Cache the result
 	if contextSize > 0 {
-		contextSizeCacheMutex.Lock()
-		contextSizeCache[cacheKey] = contextSize
-		contextSizeCacheMutex.Unlock()
+		if modelContextService != nil {
+			// Use new service
+			modelContextService.Set(cacheKey, contextSize)
+		} else {
+			// Fallback to mutex-based cache
+			contextSizeCacheMutex.Lock()
+			contextSizeCache[cacheKey] = contextSize
+			contextSizeCacheMutex.Unlock()
+		}
 	}
 
 	return contextSize, nil
