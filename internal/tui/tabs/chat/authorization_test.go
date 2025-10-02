@@ -95,7 +95,7 @@ func TestExecuteToolCallsAndCreateMessages(t *testing.T) {
 			}
 
 			// Execute the tool calls
-			messages, err := model.executeToolCallsAndCreateMessages(toolCalls)
+			messages, err := model.executeToolCallsAndCreateMessages(toolCalls, "test-ulid-123")
 
 			// For tools that don't exist, we should get an error message
 			if err != nil {
@@ -202,7 +202,7 @@ func TestMCPToolAuthorizationFlow(t *testing.T) {
 				},
 			}
 
-			messages, err := model.executeToolCallsAndCreateMessages(toolCalls)
+			messages, err := model.executeToolCallsAndCreateMessages(toolCalls, "test-ulid-123")
 
 			if err != nil {
 				t.Errorf("Unexpected error: %v", err)
@@ -253,7 +253,7 @@ func TestDefaultTrustLevel(t *testing.T) {
 		},
 	}
 
-	messages, err := model.executeToolCallsAndCreateMessages(toolCalls)
+	messages, err := model.executeToolCallsAndCreateMessages(toolCalls, "test-ulid-123")
 
 	if err != nil {
 		t.Errorf("Unexpected error: %v", err)
@@ -306,7 +306,7 @@ func TestSecurityBypass(t *testing.T) {
 		},
 	}
 
-	messages, err := model.executeToolCallsAndCreateMessages(toolCalls)
+	messages, err := model.executeToolCallsAndCreateMessages(toolCalls, "test-ulid-123")
 
 	if err != nil {
 		t.Errorf("Unexpected error: %v", err)

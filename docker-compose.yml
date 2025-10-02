@@ -2,19 +2,27 @@ services:
   gollama-chat:
     # Use pre-built multi-platform image (recommended)
     image: ghcr.io/kevensen/gollama-chat:latest
-    
+
     # Or build locally (uncomment the line below and comment out the image line above)
     # build: .
-    
+
     environment:
       TERM: xterm-256color
     ports:
       - "8080:8080"
     volumes:
-      - gollama-config:/home/appuser/.config/gollama
+      - gollama-config:/home/appuser/.local/share/gollama-chat/settings
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/"]
+      test:
+        [
+          "CMD",
+          "wget",
+          "--no-verbose",
+          "--tries=1",
+          "--spider",
+          "http://localhost:8080/",
+        ]
       interval: 30s
       timeout: 10s
       retries: 3

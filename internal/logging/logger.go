@@ -8,7 +8,6 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
-	"strings"
 	"time"
 )
 
@@ -59,13 +58,13 @@ func DefaultConfig() *Config {
 	return &Config{
 		Level:        LevelInfo,
 		EnableFile:   true,
-		LogDir:       GetDefaultLogDir(),
+		LogDir:       DefaultDir(),
 		EnableStderr: false, // Default to false for TUI applications
 	}
 }
 
-// GetDefaultLogDir returns the standard location for user-level logs
-func GetDefaultLogDir() string {
+// DefaultDir returns the standard location for user-level logs
+func DefaultDir() string {
 	var logDir string
 
 	switch runtime.GOOS {
@@ -279,19 +278,4 @@ func Close() error {
 		return globalLogger.Close()
 	}
 	return nil
-}
-
-// getCaller returns information about the calling function
-func getCaller(skip int) (string, int) {
-	_, file, line, ok := runtime.Caller(skip + 1)
-	if !ok {
-		return "unknown", 0
-	}
-
-	// Extract just the filename and package
-	parts := strings.Split(file, "/")
-	if len(parts) >= 2 {
-		return filepath.Join(parts[len(parts)-2], parts[len(parts)-1]), line
-	}
-	return filepath.Base(file), line
 }

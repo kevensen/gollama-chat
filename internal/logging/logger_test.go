@@ -25,7 +25,7 @@ func TestDefaultConfig(t *testing.T) {
 }
 
 func TestGetDefaultLogDir(t *testing.T) {
-	logDir := GetDefaultLogDir()
+	logDir := DefaultDir()
 
 	if logDir == "" {
 		t.Error("Expected log directory to be non-empty")

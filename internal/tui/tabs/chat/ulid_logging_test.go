@@ -100,7 +100,7 @@ func TestContentPreview(t *testing.T) {
 	}
 
 	for _, test := range tests {
-		result := getContentPreview(test.content, test.maxLength)
+		result := contentPreview(test.content, test.maxLength)
 		if result != test.expected {
 			t.Errorf("Expected preview %q, got %q for content %q with maxLength %d",
 				test.expected, result, test.content, test.maxLength)

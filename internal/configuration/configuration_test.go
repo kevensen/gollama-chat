@@ -168,18 +168,31 @@ func TestConfig_Validate(t *testing.T) {
 		},
 		// Additional comprehensive test cases
 		{
-			name: "empty embedding model (always required)",
+			name: "empty embedding model when RAG disabled (should be valid)",
 			config: &Config{
 				ChatModel:        "llama3.3:latest",
 				EmbeddingModel:   "",
-				RAGEnabled:       false, // Even when RAG disabled, embedding model is required
+				RAGEnabled:       false, // When RAG disabled, embedding model is not required
+				OllamaURL:        "http://localhost:11434",
+				ChromaDBURL:      "http://localhost:8000",
+				ChromaDBDistance: 1.0,
+				MaxDocuments:     5,
+			},
+			expectError: false,
+		},
+		{
+			name: "empty embedding model when RAG enabled (should fail)",
+			config: &Config{
+				ChatModel:        "llama3.3:latest",
+				EmbeddingModel:   "",
+				RAGEnabled:       true, // When RAG enabled, embedding model is required
 				OllamaURL:        "http://localhost:11434",
 				ChromaDBURL:      "http://localhost:8000",
 				ChromaDBDistance: 1.0,
 				MaxDocuments:     5,
 			},
 			expectError: true,
-			errorMsg:    "embeddingModel cannot be empty",
+			errorMsg:    "embeddingModel cannot be empty when RAG is enabled",
 		},
 		{
 			name: "empty ChromaDB URL when RAG enabled",
@@ -234,7 +247,7 @@ func TestConfig_Validate(t *testing.T) {
 				MaxDocuments:     0,
 			},
 			expectError: true,
-			errorMsg:    "maxDocuments must be greater than 0",
+			errorMsg:    "maxDocuments must be greater than 0 when RAG is enabled",
 		},
 		{
 			name: "negative max documents",
@@ -248,7 +261,7 @@ func TestConfig_Validate(t *testing.T) {
 				MaxDocuments:     -5,
 			},
 			expectError: true,
-			errorMsg:    "maxDocuments must be greater than 0",
+			errorMsg:    "maxDocuments must be greater than 0 when RAG is enabled",
 		},
 		{
 			name: "boundary values - minimum valid",
@@ -312,9 +325,9 @@ func TestDefaultConfig(t *testing.T) {
 		expected interface{}
 	}{
 		{"ChatModel", config.ChatModel, "llama3.3:latest"},
-		{"EmbeddingModel", config.EmbeddingModel, "embeddinggemma:latest"},
-		{"RAGEnabled", config.RAGEnabled, true},
-		{"OllamaURL", config.OllamaURL, "http://192.168.86.232:11434"},
+		{"EmbeddingModel", config.EmbeddingModel, ""},
+		{"RAGEnabled", config.RAGEnabled, false},
+		{"OllamaURL", config.OllamaURL, "http://localhost:11434"},
 		{"ChromaDBURL", config.ChromaDBURL, "http://localhost:8000"},
 		{"ChromaDBDistance", config.ChromaDBDistance, 1.0},
 		{"MaxDocuments", config.MaxDocuments, 5},
@@ -513,7 +526,7 @@ func TestDefaultConfig_Validation(t *testing.T) {
 		}
 
 		// Verify the Ollama URL is the expected value for cold start
-		expectedOllamaURL := "http://192.168.86.232:11434"
+		expectedOllamaURL := "http://localhost:11434"
 		if config.OllamaURL != expectedOllamaURL {
 			t.Errorf("Expected default OllamaURL %s, got %s", expectedOllamaURL, config.OllamaURL)
 		}

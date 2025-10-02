@@ -86,7 +86,7 @@ Then open your browser to `http://localhost:8080` to access the TUI through a we
 ##### Using Pre-built Images
 ```bash
 # Use the latest pre-built image from GitHub Container Registry
-docker run -p 8080:8080 -v gollama-config:/home/appuser/.config/gollama ghcr.io/kevensen/gollama-chat:latest
+docker run -p 8080:8080 -v gollama-config:/home/appuser/.local/share/gollama-chat/settings ghcr.io/kevensen/gollama-chat:latest
 
 # Use docker compose with pre-built image
 docker compose up
@@ -99,7 +99,7 @@ docker compose -f docker-compose.example.yml up
 ```bash
 # Build and run with Docker
 docker build -t gollama-chat .
-docker run -p 8080:8080 -v gollama-config:/home/appuser/.config/gollama gollama-chat
+docker run -p 8080:8080 -v gollama-config:/home/appuser/.local/share/gollama-chat/settings gollama-chat
 
 # Or use docker compose to build locally
 docker compose up --build
@@ -136,8 +136,8 @@ gotty -w ./bin/gollama-chat
 ### Configuration
 
 The application stores its configuration in:
-- **Linux/macOS**: `~/.config/gollama/settings.json`
-- **Windows**: `%APPDATA%\gollama\settings.json`
+- **Linux/macOS**: `~/.local/share/gollama-chat/settings/settings.json`
+- **Windows**: `%LOCALAPPDATA%\gollama-chat\settings\settings.json`
 
 Default configuration:
 ```json
@@ -200,7 +200,7 @@ docker build -t gollama-chat .
 
 # Run with volume for persistent configuration
 docker run -p 8080:8080 \
-  -v gollama-config:/home/appuser/.config/gollama \
+  -v gollama-config:/home/appuser/.local/share/gollama-chat/settings \
   gollama-chat
 
 # Or use docker-compose (recommended)
@@ -220,7 +220,7 @@ services:
     ports:
       - "8080:8080"
     volumes:
-      - gollama-config:/home/appuser/.config/gollama
+      - gollama-config:/home/appuser/.local/share/gollama-chat/settings
     healthcheck:
       test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/"]
       interval: 30s
@@ -249,14 +249,14 @@ The Docker container:
 
 ### Volume Mounts
 
-The container stores configuration in `/home/appuser/.config/gollama`. Mount this directory to persist settings:
+The container stores configuration in `/home/appuser/.local/share/gollama-chat/settings`. Mount this directory to persist settings:
 
 ```bash
 # Named volume (recommended)
-docker run -v gollama-config:/home/appuser/.config/gollama gollama-chat
+docker run -v gollama-config:/home/appuser/.local/share/gollama-chat/settings gollama-chat
 
 # Bind mount to host directory
-docker run -v ~/.config/gollama:/home/appuser/.config/gollama gollama-chat
+docker run -v ~/.local/share/gollama-chat/settings:/home/appuser/.local/share/gollama-chat/settings gollama-chat
 ```
 
 ### Building Custom Images
@@ -278,7 +278,7 @@ The container provides:
 - **Port 8080**: GoTTY web terminal interface
 - **Working Directory**: `/app`
 - **User**: `appuser` (non-root, UID 1000)
-- **Config Path**: `/home/appuser/.config/gollama`
+- **Config Path**: `/home/appuser/.local/share/gollama-chat/settings`
 - **Health Check**: HTTP endpoint on port 8080
 
 ### Troubleshooting Docker
@@ -397,7 +397,7 @@ docker run -p 8080:8080 gollama-chat
 
 # Development with volume mount for live config changes
 docker run -p 8080:8080 \
-  -v $(pwd)/config:/home/appuser/.config/gollama \
+  -v $(pwd)/config:/home/appuser/.local/share/gollama-chat/settings \
   gollama-chat
 
 # Clean up Docker resources

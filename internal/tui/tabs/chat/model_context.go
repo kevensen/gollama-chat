@@ -45,8 +45,8 @@ type OllamaShowResponse struct {
 	ModelInfo OllamaModelInfo `json:"model_info"`
 }
 
-// getModelContextSizeFromAPI fetches the context window size from the Ollama API
-func getModelContextSizeFromAPI(modelName string, ollamaURL string) (int, error) {
+// modelContextSizeFromAPI fetches the context window size from the Ollama API
+func modelContextSizeFromAPI(modelName string, ollamaURL string) (int, error) {
 	// Check cache first (with optional channel-based service)
 	cacheKey := modelName + "@" + ollamaURL
 
@@ -118,8 +118,8 @@ func getModelContextSizeFromAPI(modelName string, ollamaURL string) (int, error)
 	return contextSize, nil
 }
 
-// getFallbackContextSize returns a context size from the hardcoded map or a default value
-func getFallbackContextSize(modelName string) int {
+// fallbackContextSize returns a context size from the hardcoded map or a default value
+func fallbackContextSize(modelName string) int {
 	// Check if we have an exact match in our map
 	if size, ok := modelContextSizes[modelName]; ok {
 		return size
@@ -151,7 +151,7 @@ func getFallbackContextSize(modelName string) int {
 func (m Model) getModelContextSize(modelName string) int {
 	// Try to get context size from the Ollama API first
 	if m.config != nil && m.config.OllamaURL != "" {
-		size, err := getModelContextSizeFromAPI(modelName, m.config.OllamaURL)
+		size, err := modelContextSizeFromAPI(modelName, m.config.OllamaURL)
 		if err == nil && size > 0 {
 			return size
 		}
@@ -159,5 +159,5 @@ func (m Model) getModelContextSize(modelName string) int {
 	}
 
 	// Fall back to hardcoded values
-	return getFallbackContextSize(modelName)
+	return fallbackContextSize(modelName)
 }

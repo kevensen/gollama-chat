@@ -75,6 +75,9 @@ type Model struct {
 	waitingForPermission  bool
 	pendingToolCalls      map[string]api.ToolCall // Store complete tool calls by tool name
 
+	// ULID for conversation traceability
+	currentConversationULID string // The ULID for the current user prompt and its entire flow
+
 	// View caching
 	cachedMessagesView      string
 	cachedStatusView        string
@@ -144,14 +147,14 @@ func logConversationEvent(messageID, role, content, model string) {
 		"message_id", messageID,
 		"role", role,
 		"content_length", len(content),
-		"content_preview", getContentPreview(content, 100),
+		"content_preview", contentPreview(content, 100),
 		"model", model,
 		"timestamp", time.Now().Format(time.RFC3339),
 	)
 }
 
-// getContentPreview returns a truncated preview of content for logging
-func getContentPreview(content string, maxLength int) string {
+// contentPreview returns a truncated preview of content for logging
+func contentPreview(content string, maxLength int) string {
 	if len(content) <= maxLength {
 		return content
 	}
@@ -190,7 +193,8 @@ func NewModel(ctx context.Context, config *configuration.Config) Model {
 
 // sendMessageMsg is sent when a message should be sent to Ollama
 type sendMessageMsg struct {
-	message string
+	message          string
+	conversationULID string // ULID for the entire conversation flow
 }
 
 // responseMsg is sent when a response is received from Ollama
@@ -198,6 +202,7 @@ type responseMsg struct {
 	content            string
 	err                error
 	additionalMessages []Message // For tool calls and results that need to be added to history
+	conversationULID   string    // ULID for the entire conversation flow
 }
 
 // ragStatusMsg is sent to update RAG status in the input
@@ -332,18 +337,21 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					return m, nil
 				}
 			} else if strings.TrimSpace(m.inputModel.Value()) != "" {
+				// Generate a single ULID for the entire conversation flow
+				conversationULID := generateULID()
+				m.currentConversationULID = conversationULID
+
 				// Add user message
-				userULID := generateULID()
 				userMsg := Message{
 					Role:    "user",
 					Content: m.inputModel.Value(),
 					Time:    time.Now(),
-					ULID:    userULID,
+					ULID:    conversationULID, // Use conversation ULID for user message
 				}
 				m.messages = append(m.messages, userMsg)
 
-				// Log user prompt
-				logConversationEvent(userULID, "user", userMsg.Content, m.config.ChatModel)
+				// Log user prompt with conversation ULID
+				logConversationEvent(conversationULID, "user", userMsg.Content, m.config.ChatModel)
 
 				// Get the prompt and reset input
 				prompt := m.inputModel.Value()
@@ -367,7 +375,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.updateTokenCount()
 				m.statusNeedsUpdate = true
 
-				return m, m.sendMessage(prompt)
+				return m, m.sendMessage(prompt, conversationULID)
 			}
 
 		case "ctrl+s":
@@ -533,7 +541,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 
 	case sendMessageMsg:
-		return m, m.sendMessage(msg.message)
+		return m, m.sendMessage(msg.message, msg.conversationULID)
 
 	case ragStatusMsg:
 		// Update the input's RAG status
@@ -543,18 +551,17 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case responseMsg:
 		m.inputModel.SetLoading(false)
 		if msg.err != nil {
-			// Add error message
-			errorULID := generateULID()
+			// Add error message using conversation ULID for traceability
 			errorMsg := Message{
 				Role:    "assistant",
 				Content: fmt.Sprintf("Error: %s", msg.err.Error()),
 				Time:    time.Now(),
-				ULID:    errorULID,
+				ULID:    msg.conversationULID, // Use conversation ULID for traceability
 			}
 			m.messages = append(m.messages, errorMsg)
 
-			// Log error message
-			logConversationEvent(errorULID, "assistant", errorMsg.Content, m.config.ChatModel)
+			// Log error message with conversation ULID
+			logConversationEvent(msg.conversationULID, "assistant", errorMsg.Content, m.config.ChatModel)
 		} else {
 			// Check for tool permission requests in additional messages
 			permissionFound := false
@@ -612,29 +619,28 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 						// Add a cleaned up version of the permission request message to display
 						cleanContent := strings.Split(additionalMsg.Content, "\n\nTOOL_CALL_DATA:")[0]
-						cleanULID := generateULID()
 						cleanMsg := Message{
 							Role:     additionalMsg.Role,
 							Content:  cleanContent,
 							Time:     time.Now(),
-							ULID:     cleanULID,
+							ULID:     msg.conversationULID, // Use conversation ULID for traceability
 							ToolName: additionalMsg.ToolName,
 						}
 						m.messages = append(m.messages, cleanMsg)
 
-						// Log tool permission request
-						logConversationEvent(cleanULID, additionalMsg.Role, cleanContent, m.config.ChatModel)
+						// Log tool permission request with conversation ULID
+						logConversationEvent(msg.conversationULID, additionalMsg.Role, cleanContent, m.config.ChatModel)
 					}
 				} else {
 					// Skip empty messages
 					if strings.TrimSpace(additionalMsg.Content) != "" {
-						// Add ULID to additional messages if they don't have one
+						// Use conversation ULID if additional message doesn't have one
 						if additionalMsg.ULID == "" {
-							additionalMsg.ULID = generateULID()
+							additionalMsg.ULID = msg.conversationULID
 						}
 						m.messages = append(m.messages, additionalMsg)
 
-						// Log additional message (usually tool responses)
+						// Log additional message (usually tool responses) with conversation ULID
 						logConversationEvent(additionalMsg.ULID, additionalMsg.Role, additionalMsg.Content, m.config.ChatModel)
 					}
 				}
@@ -644,17 +650,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if !permissionFound {
 				// Add final assistant response only if it has content
 				if strings.TrimSpace(msg.content) != "" {
-					assistantULID := generateULID()
 					assistantMsg := Message{
 						Role:    "assistant",
 						Content: msg.content,
 						Time:    time.Now(),
-						ULID:    assistantULID,
+						ULID:    msg.conversationULID, // Use conversation ULID for traceability
 					}
 					m.messages = append(m.messages, assistantMsg)
 
-					// Log assistant response
-					logConversationEvent(assistantULID, "assistant", msg.content, m.config.ChatModel)
+					// Log assistant response with conversation ULID
+					logConversationEvent(msg.conversationULID, "assistant", msg.content, m.config.ChatModel)
 				}
 			}
 		}
@@ -833,7 +838,7 @@ func (m *Model) getCachedModelContextSize() int {
 
 	// ALWAYS use fallback values for immediate rendering (NEVER make API calls!)
 	// This ensures UI responsiveness at all times
-	contextSize := getFallbackContextSize(m.config.ChatModel)
+	contextSize := fallbackContextSize(m.config.ChatModel)
 
 	// Cache the fallback result immediately
 	m.cachedModelName = m.config.ChatModel
@@ -861,18 +866,17 @@ func (m Model) executeApprovedTool(updateTrustLevel bool) (tea.Model, tea.Cmd) {
 	// Execute the tool using the unified tool system
 	result, err := tooling.DefaultRegistry.ExecuteTool(m.pendingToolPermission.ToolCall.Function.Name, m.pendingToolPermission.ToolCall.Function.Arguments)
 	if err != nil {
-		// Add error message
-		errorULID := generateULID()
+		// Add error message using current conversation ULID
 		errorMsg := Message{
 			Role:    "assistant",
 			Content: fmt.Sprintf("Error executing %s: %v", m.pendingToolPermission.ToolName, err),
 			Time:    time.Now(),
-			ULID:    errorULID,
+			ULID:    m.currentConversationULID, // Use conversation ULID for traceability
 		}
 		m.messages = append(m.messages, errorMsg)
 
-		// Log tool execution error
-		logConversationEvent(errorULID, "assistant", errorMsg.Content, m.config.ChatModel)
+		// Log tool execution error with conversation ULID
+		logConversationEvent(m.currentConversationULID, "assistant", errorMsg.Content, m.config.ChatModel)
 	} else {
 		// Add successful result
 		var resultStr string
@@ -883,17 +887,16 @@ func (m Model) executeApprovedTool(updateTrustLevel bool) (tea.Model, tea.Cmd) {
 			resultStr = fmt.Sprintf("%v", result)
 		}
 
-		resultULID := generateULID()
 		resultMsg := Message{
 			Role:    "assistant",
 			Content: fmt.Sprintf("✅ Tool '%s' executed successfully:\n%s", m.pendingToolPermission.ToolName, resultStr),
 			Time:    time.Now(),
-			ULID:    resultULID,
+			ULID:    m.currentConversationULID, // Use conversation ULID for traceability
 		}
 		m.messages = append(m.messages, resultMsg)
 
-		// Log tool execution result
-		logConversationEvent(resultULID, "assistant", resultMsg.Content, m.config.ChatModel)
+		// Log tool execution result with conversation ULID
+		logConversationEvent(m.currentConversationULID, "assistant", resultMsg.Content, m.config.ChatModel)
 	}
 
 	// Clear permission state
@@ -912,18 +915,17 @@ func (m Model) denyToolExecution() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
-	// Add denial message
-	denialULID := generateULID()
+	// Add denial message using current conversation ULID
 	denialMsg := Message{
 		Role:    "assistant",
 		Content: fmt.Sprintf("❌ Tool '%s' execution denied by user", m.pendingToolPermission.ToolName),
 		Time:    time.Now(),
-		ULID:    denialULID,
+		ULID:    m.currentConversationULID, // Use conversation ULID for traceability
 	}
 	m.messages = append(m.messages, denialMsg)
 
-	// Log tool denial
-	logConversationEvent(denialULID, "assistant", denialMsg.Content, m.config.ChatModel)
+	// Log tool denial with conversation ULID
+	logConversationEvent(m.currentConversationULID, "assistant", denialMsg.Content, m.config.ChatModel)
 
 	// Clear permission state
 	m.pendingToolPermission = nil

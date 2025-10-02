@@ -45,7 +45,7 @@ docker-build:
 docker-run: docker-build
 	@echo "Running Docker container..."
 	@echo "Open your browser to http://localhost:8080"
-	@docker run -p 8080:8080 -v gollama-config:/home/appuser/.config/gollama $(BINARY_NAME)
+	@docker run -p 8080:8080 -v gollama-config:/home/appuser/.local/share/gollama-chat/settings $(BINARY_NAME)
 
 # Clean build artifacts
 clean:

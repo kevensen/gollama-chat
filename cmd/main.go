@@ -33,7 +33,7 @@ func main() {
 	logConfig := &logging.Config{
 		Level:        logging.LogLevel(config.GetLogLevel()),
 		EnableFile:   config.EnableFileLogging,
-		LogDir:       logging.GetDefaultLogDir(),
+		LogDir:       logging.DefaultDir(),
 		EnableStderr: false, // Disable stderr logging for TUI mode
 	}
 

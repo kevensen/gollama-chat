@@ -37,9 +37,9 @@ type Config struct {
 func DefaultConfig() *Config {
 	return &Config{
 		ChatModel:           "llama3.3:latest",
-		EmbeddingModel:      "embeddinggemma:latest",
-		RAGEnabled:          true,
-		OllamaURL:           "http://192.168.86.232:11434",
+		EmbeddingModel:      "",
+		RAGEnabled:          false,
+		OllamaURL:           "http://localhost:11434",
 		ChromaDBURL:         "http://localhost:8000",
 		ChromaDBDistance:    1.0, // Updated for cosine similarity (0-2 range)
 		MaxDocuments:        5,
@@ -52,33 +52,36 @@ func DefaultConfig() *Config {
 	}
 }
 
-// getConfigDir returns the appropriate config directory based on OS
-func getConfigDir() (string, error) {
+// dir returns the appropriate config directory based on OS
+func dir() (string, error) {
 	var configDir string
 
 	switch runtime.GOOS {
 	case "windows":
-		configDir = os.Getenv("APPDATA")
+		configDir = os.Getenv("LOCALAPPDATA")
 		if configDir == "" {
-			return "", fmt.Errorf("APPDATA environment variable not set")
+			configDir = os.Getenv("APPDATA")
+			if configDir == "" {
+				return "", fmt.Errorf("LOCALAPPDATA or APPDATA environment variable not set")
+			}
 		}
 	default: // Linux, macOS, and other Unix-like systems
-		configDir = os.Getenv("XDG_CONFIG_HOME")
+		configDir = os.Getenv("XDG_DATA_HOME")
 		if configDir == "" {
 			homeDir, err := os.UserHomeDir()
 			if err != nil {
 				return "", fmt.Errorf("failed to get user home directory: %w", err)
 			}
-			configDir = filepath.Join(homeDir, ".config")
+			configDir = filepath.Join(homeDir, ".local", "share")
 		}
 	}
 
-	return filepath.Join(configDir, "gollama"), nil
+	return filepath.Join(configDir, "gollama-chat", "settings"), nil
 }
 
-// getConfigPath returns the full path to the configuration file
-func getConfigPath() (string, error) {
-	configDir, err := getConfigDir()
+// path returns the full path to the configuration file
+func path() (string, error) {
+	configDir, err := dir()
 	if err != nil {
 		return "", err
 	}
@@ -88,7 +91,7 @@ func getConfigPath() (string, error) {
 // Load reads the configuration from the settings file
 // If the file doesn't exist, it creates it with default configuration
 func Load() (*Config, error) {
-	configPath, err := getConfigPath()
+	configPath, err := path()
 	if err != nil {
 		return nil, fmt.Errorf("failed to get config path: %w", err)
 	}
@@ -157,7 +160,7 @@ func applyDefaultsIfMissing(c *Config) {
 
 // Save writes the configuration to the settings file
 func (c *Config) Save() error {
-	configDir, err := getConfigDir()
+	configDir, err := dir()
 	if err != nil {
 		return fmt.Errorf("failed to get config directory: %w", err)
 	}
@@ -167,7 +170,7 @@ func (c *Config) Save() error {
 		return fmt.Errorf("failed to create config directory: %w", err)
 	}
 
-	configPath, err := getConfigPath()
+	configPath, err := path()
 	if err != nil {
 		return fmt.Errorf("failed to get config path: %w", err)
 	}
@@ -192,7 +195,7 @@ func (c *Config) Validate() error {
 	if c.ChatModel == "" {
 		return fmt.Errorf("chatModel cannot be empty")
 	}
-	// Note: embeddingModel can be empty when RAG is disabled
+	// EmbeddingModel is only required when RAG is enabled
 	if c.EmbeddingModel == "" && c.RAGEnabled {
 		return fmt.Errorf("embeddingModel cannot be empty when RAG is enabled")
 	}

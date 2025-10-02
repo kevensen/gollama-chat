@@ -14,7 +14,7 @@ import (
 )
 
 // sendMessage sends a message to Ollama using the Ollama API client
-func (m Model) sendMessage(prompt string) tea.Cmd {
+func (m Model) sendMessage(prompt string, conversationULID string) tea.Cmd {
 	return tea.Cmd(func() tea.Msg {
 		var fullPrompt string
 
@@ -156,7 +156,7 @@ func (m Model) sendMessage(prompt string) tea.Cmd {
 
 		if len(toolCalls) > 0 {
 			// Execute the tool calls
-			toolResultMessages, toolErr := m.executeToolCallsAndCreateMessages(toolCalls)
+			toolResultMessages, toolErr := m.executeToolCallsAndCreateMessages(toolCalls, conversationULID)
 			if toolErr != nil {
 				responseContent += fmt.Sprintf("\n\n[Tool execution error: %v]", toolErr)
 			} else {
@@ -175,7 +175,7 @@ func (m Model) sendMessage(prompt string) tea.Cmd {
 						Role:      "assistant",
 						Content:   responseContent,
 						Time:      time.Now(),
-						ULID:      generateULID(),
+						ULID:      conversationULID, // Use conversation ULID for traceability
 						ToolCalls: toolCallInfos,
 					}
 					additionalMessages = append(additionalMessages, assistantWithToolsMsg)
@@ -187,7 +187,7 @@ func (m Model) sendMessage(prompt string) tea.Cmd {
 						Role:     "tool",                // Use "tool" role to distinguish from regular messages
 						Content:  toolResultMsg.Content, // Store clean content without prefix
 						Time:     time.Now(),
-						ULID:     generateULID(),
+						ULID:     conversationULID, // Use conversation ULID for traceability
 						ToolName: toolResultMsg.ToolName,
 						Hidden:   true, // Hide tool messages from TUI display
 					}
@@ -233,12 +233,13 @@ func (m Model) sendMessage(prompt string) tea.Cmd {
 		return responseMsg{
 			content:            responseContent,
 			additionalMessages: additionalMessages,
+			conversationULID:   conversationULID,
 		}
 	})
 }
 
 // executeToolCallsAndCreateMessages executes the tool calls and returns the tool result messages
-func (m Model) executeToolCallsAndCreateMessages(toolCalls []api.ToolCall) ([]api.Message, error) {
+func (m Model) executeToolCallsAndCreateMessages(toolCalls []api.ToolCall, conversationULID string) ([]api.Message, error) {
 	var messages []api.Message
 
 	for _, toolCall := range toolCalls {

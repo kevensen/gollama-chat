@@ -51,8 +51,8 @@ RUN addgroup -g 1001 -S appgroup && \
   adduser -u 1001 -S appuser -G appgroup
 
 # Create config directory for volume mount
-RUN mkdir -p /home/appuser/.config/gollama && \
-  chown -R appuser:appgroup /home/appuser/.config
+RUN mkdir -p /home/appuser/.local/share/gollama-chat/settings && \
+  chown -R appuser:appgroup /home/appuser/.local
 
 # Set working directory
 WORKDIR /app
@@ -67,7 +67,7 @@ RUN chown appuser:appgroup /app/gollama-chat
 USER appuser
 
 # Volume for configuration persistence
-VOLUME ["/home/appuser/.config/gollama"]
+VOLUME ["/home/appuser/.local/share/gollama-chat/settings"]
 
 # Expose port for GoTTY web interface
 EXPOSE 8080
