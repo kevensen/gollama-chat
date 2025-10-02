@@ -82,11 +82,6 @@ test-bench:
 	@echo "Running benchmarks..."
 	@$(GO_BIN) test -bench=. ./...
 
-# Run input performance tests with thresholds
-test-performance:
-	@echo "Running input performance tests..."
-	@./test_input_performance.sh
-
 # Run input benchmarks only
 test-input-bench:
 	@echo "Running input component benchmarks..."
