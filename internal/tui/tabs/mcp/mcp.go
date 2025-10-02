@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -111,6 +112,11 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 			Arguments: []string{},
 			Enabled:   true,
 		}
+		// Use delayed refresh to allow time for async server operations to complete
+		return m, tea.Batch(m.refreshServerList(), m.delayedRefresh())
+
+	case delayedRefreshMsg:
+		// Handle delayed refresh trigger
 		return m, m.refreshServerList()
 	}
 
@@ -245,6 +251,58 @@ func (m Model) handleAddFormKeys(msg tea.KeyMsg) (Model, tea.Cmd) {
 		}
 		return m, nil
 
+	case "shift+tab":
+		// Save current field before moving to previous
+		switch m.editingField {
+		case 0: // Name
+			m.newServer.Name = strings.TrimSpace(m.inputValue)
+		case 1: // Command
+			m.newServer.Command = strings.TrimSpace(m.inputValue)
+		case 2: // Arguments
+			args := strings.Fields(strings.TrimSpace(m.inputValue))
+			m.newServer.Arguments = args
+		}
+
+		// Move to previous field
+		m.editingField = (m.editingField - 1 + 4) % 4
+		switch m.editingField {
+		case 0:
+			m.inputValue = m.newServer.Name
+		case 1:
+			m.inputValue = m.newServer.Command
+		case 2:
+			m.inputValue = strings.Join(m.newServer.Arguments, " ")
+		case 3:
+			m.inputValue = ""
+		}
+		return m, nil
+
+	case "shift+enter":
+		// Save current field before moving to previous
+		switch m.editingField {
+		case 0: // Name
+			m.newServer.Name = strings.TrimSpace(m.inputValue)
+		case 1: // Command
+			m.newServer.Command = strings.TrimSpace(m.inputValue)
+		case 2: // Arguments
+			args := strings.Fields(strings.TrimSpace(m.inputValue))
+			m.newServer.Arguments = args
+		}
+
+		// Move to previous field
+		m.editingField = (m.editingField - 1 + 4) % 4
+		switch m.editingField {
+		case 0:
+			m.inputValue = m.newServer.Name
+		case 1:
+			m.inputValue = m.newServer.Command
+		case 2:
+			m.inputValue = strings.Join(m.newServer.Arguments, " ")
+		case 3:
+			m.inputValue = ""
+		}
+		return m, nil
+
 	case "space", " ":
 		if m.editingField == 3 { // Toggle enabled
 			m.newServer.Enabled = !m.newServer.Enabled
@@ -320,6 +378,38 @@ func (m Model) handleEditingKeys(msg tea.KeyMsg) (Model, tea.Cmd) {
 		}
 		return m, nil
 
+	case "shift+tab":
+		// Move to previous field
+		m.editingField = (m.editingField - 1 + 4) % 4
+		server := m.servers[m.editingIndex]
+		switch m.editingField {
+		case 0:
+			m.inputValue = server.Name
+		case 1:
+			m.inputValue = server.Command
+		case 2:
+			m.inputValue = strings.Join(server.Arguments, " ")
+		case 3:
+			m.inputValue = ""
+		}
+		return m, nil
+
+	case "shift+enter":
+		// Move to previous field
+		m.editingField = (m.editingField - 1 + 4) % 4
+		server := m.servers[m.editingIndex]
+		switch m.editingField {
+		case 0:
+			m.inputValue = server.Name
+		case 1:
+			m.inputValue = server.Command
+		case 2:
+			m.inputValue = strings.Join(server.Arguments, " ")
+		case 3:
+			m.inputValue = ""
+		}
+		return m, nil
+
 	case "space":
 		if m.editingField == 3 { // Toggle enabled
 			server := &m.servers[m.editingIndex]
@@ -358,7 +448,7 @@ func (m Model) View() string {
 	if m.editingIndex >= 0 {
 		s.WriteString(lipgloss.NewStyle().
 			Foreground(lipgloss.Color("241")).
-			Render("Editing server - Enter: save field/next, Tab: next field, Esc: cancel"))
+			Render("Editing server - Enter: save field/next, Tab: next field, Shift+Tab/Shift+Enter: previous field, Esc: cancel"))
 	} else {
 		s.WriteString(lipgloss.NewStyle().
 			Foreground(lipgloss.Color("241")).
@@ -557,7 +647,7 @@ func (m Model) renderAddForm() string {
 
 	s.WriteString(lipgloss.NewStyle().
 		Foreground(lipgloss.Color("241")).
-		Render("Tab/Enter: next field, Space: toggle enabled, Esc: cancel"))
+		Render("Tab/Enter: next field, Shift+Tab/Shift+Enter: previous field, Space: toggle enabled, Esc: cancel"))
 	s.WriteString("\n\n")
 
 	// Form fields
@@ -597,7 +687,7 @@ func (m Model) renderAddFormContent() string {
 
 	s.WriteString(lipgloss.NewStyle().
 		Foreground(lipgloss.Color("241")).
-		Render("Tab/Enter: next field, Space: toggle enabled, Esc: cancel"))
+		Render("Tab/Enter: next field, Shift+Tab/Shift+Enter: previous field, Space: toggle enabled, Esc: cancel"))
 	s.WriteString("\n\n")
 
 	// Form fields
@@ -728,6 +818,14 @@ func (m Model) deleteServer(index int) tea.Cmd {
 		server := m.servers[index]
 		err := m.config.RemoveMCPServer(server.Name)
 		if err != nil {
+			// If the server is not found, consider it already deleted (successful operation)
+			if strings.Contains(err.Error(), "not found") {
+				// Server already deleted, update manager and continue
+				if updateErr := m.manager.UpdateConfiguration(m.ctx, m.config); updateErr != nil {
+					return serverActionCompleteMsg{err: updateErr}
+				}
+				return serverActionCompleteMsg{err: nil}
+			}
 			return serverActionCompleteMsg{err: err}
 		}
 
@@ -778,4 +876,21 @@ func (m Model) updateServer(oldName string, server configuration.MCPServer) tea.
 
 		return serverActionCompleteMsg{err: nil}
 	})
+}
+
+// delayedRefresh refreshes the server list after a short delay
+// This helps with synchronization issues where servers need time to stop
+func (m Model) delayedRefresh() tea.Cmd {
+	return tea.Tick(time.Millisecond*500, func(time.Time) tea.Msg {
+		return delayedRefreshMsg{}
+	})
+}
+
+// Add a new message type for delayed refresh
+type delayedRefreshMsg struct{}
+
+// IsInFormMode returns true if the MCP tab is currently in a form editing mode
+// (either adding a new server or editing an existing one)
+func (m Model) IsInFormMode() bool {
+	return m.showAddForm || m.editingIndex >= 0
 }

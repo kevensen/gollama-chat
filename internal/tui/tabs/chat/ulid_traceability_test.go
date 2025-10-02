@@ -1,7 +1,6 @@
 package chat
 
 import (
-	"context"
 	"testing"
 	"time"
 
@@ -29,7 +28,7 @@ func TestULIDTraceability(t *testing.T) {
 	}
 
 	// Create model
-	ctx := context.Background()
+	ctx := t.Context()
 	model := NewModel(ctx, config)
 	model.width = 80
 	model.height = 24
@@ -139,7 +138,7 @@ func TestULIDPersistenceAcrossConversations(t *testing.T) {
 	}
 
 	// Create model
-	ctx := context.Background()
+	ctx := t.Context()
 	model := NewModel(ctx, config)
 	model.width = 80
 	model.height = 24

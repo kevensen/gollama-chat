@@ -1,7 +1,6 @@
 package mcp
 
 import (
-	"context"
 	"encoding/json"
 	"testing"
 	"time"
@@ -108,8 +107,7 @@ func TestJSONRPCIDMatching(t *testing.T) {
 }
 
 func TestClientResponseHandling(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	server := configuration.MCPServer{
 		Name:      "test-server",

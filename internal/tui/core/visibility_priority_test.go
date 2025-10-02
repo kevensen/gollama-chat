@@ -1,7 +1,6 @@
 package core
 
 import (
-	"context"
 	"fmt"
 	"strings"
 	"testing"
@@ -15,7 +14,7 @@ func TestVisibilityPriority(t *testing.T) {
 		EmbeddingModel: "test-embedding",
 		OllamaURL:      "http://localhost:11434",
 	}
-	ctx := context.Background()
+	ctx := t.Context()
 	model := NewModel(ctx, config)
 
 	tests := []struct {
@@ -114,7 +113,7 @@ func TestTabDeadZoneElimination(t *testing.T) {
 		EmbeddingModel: "test-embedding",
 		OllamaURL:      "http://localhost:11434",
 	}
-	ctx := context.Background()
+	ctx := t.Context()
 	model := NewModel(ctx, config)
 
 	// Test a range of widths to ensure there are no "dead zones" where tabs disappear

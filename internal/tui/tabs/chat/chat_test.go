@@ -27,7 +27,7 @@ func TestNewModel(t *testing.T) {
 		SelectedCollections: make(map[string]bool),
 	}
 
-	ctx := context.Background()
+	ctx := t.Context()
 
 	tests := []struct {
 		name   string
@@ -119,8 +119,8 @@ func TestModel_BasicGetters(t *testing.T) {
 		DefaultSystemPrompt: "Test prompt",
 		SelectedCollections: make(map[string]bool),
 	}
-
-	model := NewModel(context.Background(), config)
+	ctx := t.Context()
+	model := NewModel(ctx, config)
 
 	// Add some test messages
 	testMessages := []Message{
@@ -151,8 +151,8 @@ func TestModel_SetSize(t *testing.T) {
 		DefaultSystemPrompt: "Test prompt",
 		SelectedCollections: make(map[string]bool),
 	}
-
-	model := NewModel(context.Background(), config)
+	ctx := t.Context()
+	model := NewModel(ctx, config)
 
 	tests := []struct {
 		name   string
@@ -190,8 +190,8 @@ func TestModel_ScrollManagement(t *testing.T) {
 		DefaultSystemPrompt: "Test prompt",
 		SelectedCollections: make(map[string]bool),
 	}
-
-	model := NewModel(context.Background(), config)
+	ctx := t.Context()
+	model := NewModel(ctx, config)
 
 	tests := []struct {
 		name           string
@@ -223,8 +223,8 @@ func TestModel_CacheManagement(t *testing.T) {
 		DefaultSystemPrompt: "Test prompt",
 		SelectedCollections: make(map[string]bool),
 	}
-
-	model := NewModel(context.Background(), config)
+	ctx := t.Context()
+	model := NewModel(ctx, config)
 
 	// Test cache initialization
 	if model.messageCache == nil {
@@ -309,7 +309,7 @@ func TestMessageCache_GetRenderedMessage(t *testing.T) {
 		EmbeddingModel: "test-embedding",
 		OllamaURL:      "http://localhost:11434",
 	}
-	ctx := context.Background()
+	ctx := t.Context()
 	model := NewModel(ctx, config)
 	model.width = 80
 
@@ -349,7 +349,7 @@ func TestMessageCache_GetTotalHeight(t *testing.T) {
 		EmbeddingModel: "test-embedding",
 		OllamaURL:      "http://localhost:11434",
 	}
-	ctx := context.Background()
+	ctx := t.Context()
 	model := NewModel(ctx, config)
 	model.width = 80
 	model.height = 25
@@ -387,7 +387,7 @@ func TestMessageCache_WidthInvalidation(t *testing.T) {
 		EmbeddingModel: "test-embedding",
 		OllamaURL:      "http://localhost:11434",
 	}
-	ctx := context.Background()
+	ctx := t.Context()
 	model := NewModel(ctx, config)
 	cache := NewMessageCache()
 
@@ -424,7 +424,7 @@ func TestMessageCache_RenderAllMessages_Empty(t *testing.T) {
 		EmbeddingModel: "test-embedding",
 		OllamaURL:      "http://localhost:11434",
 	}
-	ctx := context.Background()
+	ctx := t.Context()
 	model := NewModel(ctx, config)
 	model.width = 80
 	model.height = 25
@@ -444,7 +444,7 @@ func TestMessageCache_RenderAllMessages_WithMessages(t *testing.T) {
 		EmbeddingModel: "test-embedding",
 		OllamaURL:      "http://localhost:11434",
 	}
-	ctx := context.Background()
+	ctx := t.Context()
 	model := NewModel(ctx, config)
 	model.width = 80
 	model.height = 25
@@ -503,7 +503,7 @@ func TestModel_CalculateMessagesHeight(t *testing.T) {
 		EmbeddingModel: "test-embedding",
 		OllamaURL:      "http://localhost:11434",
 	}
-	ctx := context.Background()
+	ctx := t.Context()
 	model := NewModel(ctx, config)
 	model.width = 80
 
@@ -547,7 +547,7 @@ func TestModel_FormatMessage(t *testing.T) {
 		EmbeddingModel: "test-embedding",
 		OllamaURL:      "http://localhost:11434",
 	}
-	ctx := context.Background()
+	ctx := t.Context()
 	model := NewModel(ctx, config)
 	model.width = 80
 	model.styles = DefaultStyles()
@@ -643,7 +643,7 @@ func TestModel_GetSystemPromptHeight(t *testing.T) {
 		EmbeddingModel: "test-embedding",
 		OllamaURL:      "http://localhost:11434",
 	}
-	ctx := context.Background()
+	ctx := t.Context()
 	model := NewModel(ctx, config)
 	model.width = 80
 	model.height = 24
@@ -686,7 +686,7 @@ func TestModel_RenderSystemPrompt(t *testing.T) {
 		EmbeddingModel: "test-embedding",
 		OllamaURL:      "http://localhost:11434",
 	}
-	ctx := context.Background()
+	ctx := t.Context()
 	model := NewModel(ctx, config)
 	model.width = 80
 	model.height = 24
@@ -760,7 +760,7 @@ func TestModel_SendMessageMsg(t *testing.T) {
 		EmbeddingModel: "test-embedding",
 		OllamaURL:      "http://localhost:11434",
 	}
-	ctx := context.Background()
+	ctx := t.Context()
 	model := NewModel(ctx, config)
 
 	// Test sendMessageMsg handling
@@ -789,7 +789,7 @@ func TestModel_ResponseMsg_Success(t *testing.T) {
 		EmbeddingModel: "test-embedding",
 		OllamaURL:      "http://localhost:11434",
 	}
-	ctx := context.Background()
+	ctx := t.Context()
 	model := NewModel(ctx, config)
 
 	// Set loading state
@@ -844,7 +844,7 @@ func TestModel_ResponseMsg_Error(t *testing.T) {
 		EmbeddingModel: "test-embedding",
 		OllamaURL:      "http://localhost:11434",
 	}
-	ctx := context.Background()
+	ctx := t.Context()
 	model := NewModel(ctx, config)
 
 	// Set loading state
@@ -889,7 +889,7 @@ func TestModel_RAGStatusMsg(t *testing.T) {
 		EmbeddingModel: "test-embedding",
 		OllamaURL:      "http://localhost:11434",
 	}
-	ctx := context.Background()
+	ctx := t.Context()
 	model := NewModel(ctx, config)
 
 	// Test RAG status message
@@ -918,7 +918,7 @@ func TestModel_MessageProcessing_Integration(t *testing.T) {
 		EmbeddingModel: "test-embedding",
 		OllamaURL:      "http://localhost:11434",
 	}
-	ctx := context.Background()
+	ctx := t.Context()
 	model := NewModel(ctx, config)
 
 	// Simulate a full message exchange
@@ -974,7 +974,7 @@ func TestToolPermissionRequest(t *testing.T) {
 		},
 	}
 
-	ctx := context.Background()
+	ctx := t.Context()
 	model := NewModel(ctx, config)
 
 	// Test permission request creation
@@ -1074,7 +1074,7 @@ func TestToolPermissionResponses(t *testing.T) {
 				ToolTrustLevels:     make(map[string]int),
 			}
 
-			ctx := context.Background()
+			ctx := t.Context()
 			model := NewModel(ctx, config)
 
 			// Setup permission request
@@ -1155,7 +1155,7 @@ func TestPlaceholderTextChange(t *testing.T) {
 		ToolTrustLevels:     make(map[string]int),
 	}
 
-	ctx := context.Background()
+	ctx := t.Context()
 	model := NewModel(ctx, config)
 
 	// Initially should have default placeholder
@@ -1206,7 +1206,7 @@ func TestPermissionRequestDetection(t *testing.T) {
 		ToolTrustLevels:     make(map[string]int),
 	}
 
-	ctx := context.Background()
+	ctx := t.Context()
 	model := NewModel(ctx, config)
 
 	// Create a mock response that includes a permission request
@@ -1283,7 +1283,7 @@ func TestToolTrustLevelEnforcement(t *testing.T) {
 				},
 			}
 
-			ctx := context.Background()
+			ctx := t.Context()
 			_ = NewModel(ctx, config)
 
 			// Note: Full tool execution testing would require mocking the Ollama API
@@ -1304,7 +1304,7 @@ func TestSequentialChatInteractionFlow(t *testing.T) {
 		SelectedCollections: make(map[string]bool),
 		ToolTrustLevels:     map[string]int{},
 	}
-	ctx := context.Background()
+	ctx := t.Context()
 	model := NewModel(ctx, config)
 
 	// Step 1: Send initial message and capture the state change

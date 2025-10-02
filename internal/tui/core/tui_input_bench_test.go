@@ -1,7 +1,6 @@
 package core
 
 import (
-	"context"
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -42,12 +41,11 @@ func BenchmarkFullInputPipeline(b *testing.B) {
 		{"punctuation", "hello world", '.', "Punctuation insertion"},
 		{"numbers", "value: ", '4', "Number insertion"},
 	}
-
+	ctx := b.Context()
 	for _, tt := range tests {
 		b.Run(tt.name, func(b *testing.B) {
 			// Setup TUI model with realistic configuration
 			config := createBenchmarkConfig()
-			ctx := context.Background()
 			model := NewModel(ctx, config)
 
 			// Initialize with realistic window size
@@ -98,7 +96,7 @@ func BenchmarkFullInputPipeline(b *testing.B) {
 // This simulates removing the TUI-level fast path and only using the chat-level fast path
 func BenchmarkWithoutUltraFastPath(b *testing.B) {
 	config := createBenchmarkConfig()
-	ctx := context.Background()
+	ctx := b.Context()
 
 	b.Run("ascii_without_ultra_fast_path", func(b *testing.B) {
 		model := NewModel(ctx, config)
@@ -160,8 +158,7 @@ func BenchmarkWithoutUltraFastPath(b *testing.B) {
 // BenchmarkFastPathEfficiency compares fast path vs normal path performance
 func BenchmarkFastPathEfficiency(b *testing.B) {
 	config := createBenchmarkConfig()
-	ctx := context.Background()
-
+	ctx := b.Context()
 	b.Run("fast_path_ascii", func(b *testing.B) {
 		model := NewModel(ctx, config)
 		model.width = 100
@@ -217,7 +214,7 @@ func BenchmarkFastPathEfficiency(b *testing.B) {
 // BenchmarkTabSwitchingImpact tests if tab switching affects input performance
 func BenchmarkTabSwitchingImpact(b *testing.B) {
 	config := createBenchmarkConfig()
-	ctx := context.Background()
+	ctx := b.Context()
 
 	b.Run("chat_tab_active", func(b *testing.B) {
 		model := NewModel(ctx, config)
@@ -286,7 +283,7 @@ func BenchmarkRealisticTypingWorkload(b *testing.B) {
 	for _, scenario := range scenarios {
 		b.Run(scenario.name, func(b *testing.B) {
 			config := createBenchmarkConfig()
-			ctx := context.Background()
+			ctx := b.Context()
 
 			b.ResetTimer()
 			for i := 0; i < b.N; i++ {
@@ -316,7 +313,7 @@ func BenchmarkRealisticTypingWorkload(b *testing.B) {
 // BenchmarkWindowSizeUpdates tests performance impact of window resize events during typing
 func BenchmarkWindowSizeUpdates(b *testing.B) {
 	config := createBenchmarkConfig()
-	ctx := context.Background()
+	ctx := b.Context()
 
 	b.Run("typing_with_stable_window", func(b *testing.B) {
 		model := NewModel(ctx, config)
@@ -366,7 +363,7 @@ func BenchmarkWindowSizeUpdates(b *testing.B) {
 // BenchmarkMemoryAllocationFullPipeline tests memory allocation patterns in the full pipeline
 func BenchmarkMemoryAllocationFullPipeline(b *testing.B) {
 	config := createBenchmarkConfig()
-	ctx := context.Background()
+	ctx := b.Context()
 
 	b.Run("single_character_allocation", func(b *testing.B) {
 		model := NewModel(ctx, config)
@@ -421,7 +418,7 @@ func BenchmarkTypingWithoutUltraFastPath(b *testing.B) {
 	for _, scenario := range scenarios {
 		b.Run("without_ultra_fast_"+scenario.name, func(b *testing.B) {
 			config := createBenchmarkConfig()
-			ctx := context.Background()
+			ctx := b.Context()
 
 			b.ResetTimer()
 			for i := 0; i < b.N; i++ {
@@ -450,7 +447,7 @@ func BenchmarkTypingWithoutUltraFastPath(b *testing.B) {
 
 		b.Run("with_ultra_fast_"+scenario.name, func(b *testing.B) {
 			config := createBenchmarkConfig()
-			ctx := context.Background()
+			ctx := b.Context()
 
 			b.ResetTimer()
 			for i := 0; i < b.N; i++ {

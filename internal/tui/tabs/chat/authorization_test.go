@@ -1,7 +1,6 @@
 package chat
 
 import (
-	"context"
 	"testing"
 
 	"github.com/kevensen/gollama-chat/internal/configuration"
@@ -65,6 +64,7 @@ func TestExecuteToolCallsAndCreateMessages(t *testing.T) {
 			expectError:     true,
 		},
 	}
+	ctx := t.Context()
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -79,7 +79,6 @@ func TestExecuteToolCallsAndCreateMessages(t *testing.T) {
 				},
 			}
 
-			ctx := context.Background()
 			model := NewModel(ctx, config)
 
 			// Create a tool call for testing
@@ -187,7 +186,7 @@ func TestMCPToolAuthorizationFlow(t *testing.T) {
 				},
 			}
 
-			ctx := context.Background()
+			ctx := t.Context()
 			model := NewModel(ctx, config)
 
 			toolCalls := []api.ToolCall{
@@ -239,7 +238,7 @@ func TestDefaultTrustLevel(t *testing.T) {
 		ToolTrustLevels: make(map[string]int),
 	}
 
-	ctx := context.Background()
+	ctx := t.Context()
 	model := NewModel(ctx, config)
 
 	toolCalls := []api.ToolCall{
@@ -289,7 +288,7 @@ func TestSecurityBypass(t *testing.T) {
 		ToolTrustLevels:     make(map[string]int),
 	}
 
-	ctx := context.Background()
+	ctx := t.Context()
 	model := NewModel(ctx, config)
 
 	// Simulate what would happen if a model somehow returned tool execution results

@@ -1,7 +1,6 @@
 package chat
 
 import (
-	"context"
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -42,7 +41,7 @@ func TestMessageULIDAssignment(t *testing.T) {
 		EmbeddingModel: "test-embedding",
 		OllamaURL:      "http://localhost:11434",
 	}
-	ctx := context.Background()
+	ctx := t.Context()
 	model := NewModel(ctx, config)
 
 	// Test that user messages get ULIDs assigned

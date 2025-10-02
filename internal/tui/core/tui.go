@@ -152,6 +152,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			logger.Info("User requested quit")
 			return m, tea.Quit
 		case "tab":
+			// Check if MCP tab is active and in form mode - if so, let it handle tab navigation
+			if m.activeTab == MCPTab && m.mcpModel.IsInFormMode() {
+				mcpModel, mcpCmd := m.mcpModel.Update(msg)
+				m.mcpModel = mcpModel
+				return m, mcpCmd
+			}
+
 			// Switch tabs
 			oldTab := m.activeTab
 			m.activeTab = (m.activeTab + 1) % Tab(len(m.tabs))
@@ -208,6 +215,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.syncRAGCollections()
 			}
 		case "shift+tab":
+			// Check if MCP tab is active and in form mode - if so, let it handle shift+tab navigation
+			if m.activeTab == MCPTab && m.mcpModel.IsInFormMode() {
+				mcpModel, mcpCmd := m.mcpModel.Update(msg)
+				m.mcpModel = mcpModel
+				return m, mcpCmd
+			}
+
 			// Switch tabs in reverse
 			oldTab := m.activeTab
 			m.activeTab = (m.activeTab - 1 + Tab(len(m.tabs))) % Tab(len(m.tabs))
@@ -256,6 +270,36 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// Sync selected collections when switching to Chat tab
 			if m.activeTab == ChatTab {
 				m.syncRAGCollections()
+			}
+		case "shift+enter":
+			// Check if MCP tab is active and in form mode - if so, let it handle shift+enter navigation
+			if m.activeTab == MCPTab && m.mcpModel.IsInFormMode() {
+				mcpModel, mcpCmd := m.mcpModel.Update(msg)
+				m.mcpModel = mcpModel
+				return m, mcpCmd
+			}
+			// Otherwise, forward to the active tab as usual
+			switch m.activeTab {
+			case ChatTab:
+				chatModel, chatCmd := m.chatModel.Update(msg)
+				m.chatModel = chatModel.(chat.Model)
+				cmd = chatCmd
+			case ConfigTab:
+				configModel, configCmd := m.configModel.Update(msg)
+				m.configModel = configModel.(configTab.Model)
+				cmd = configCmd
+			case RAGTab:
+				ragModel, ragCmd := m.ragModel.Update(msg)
+				m.ragModel = ragModel.(ragTab.Model)
+				cmd = ragCmd
+			case ToolsTab:
+				toolsModel, toolsCmd := m.toolsModel.Update(msg)
+				m.toolsModel = toolsModel.(toolsTab.Model)
+				cmd = toolsCmd
+			case MCPTab:
+				mcpModel, mcpCmd := m.mcpModel.Update(msg)
+				m.mcpModel = mcpModel
+				cmd = mcpCmd
 			}
 		default:
 			// Forward key messages to the active tab

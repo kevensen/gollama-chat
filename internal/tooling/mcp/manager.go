@@ -291,8 +291,11 @@ func (m *Manager) RefreshTools() error {
 func (m *Manager) UpdateConfiguration(ctx context.Context, config *configuration.Config) error {
 	m.config = config
 
+	// Minimize critical section - only access shared data under lock
+	var toStop []*Client
+	var toStart []configuration.MCPServer
+
 	m.clientsMux.Lock()
-	defer m.clientsMux.Unlock()
 
 	// Get current running servers
 	currentServers := make(map[string]bool)
@@ -306,23 +309,47 @@ func (m *Manager) UpdateConfiguration(ctx context.Context, config *configuration
 		enabledServers[server.Name] = server
 	}
 
-	// Stop servers that are no longer enabled or configured
+	// Collect servers to stop (but don't stop them while holding the lock)
 	for name, client := range m.clients {
 		if _, stillEnabled := enabledServers[name]; !stillEnabled {
-			client.Stop()
+			toStop = append(toStop, client)
 			delete(m.clients, name)
 		}
 	}
 
-	// Start newly enabled servers
-	var errors []error
+	// Collect servers to start
 	for name, server := range enabledServers {
 		if _, alreadyRunning := currentServers[name]; !alreadyRunning {
-			client := NewClient(ctx, server)
-			m.clients[name] = client
-			if err := client.Start(); err != nil {
-				errors = append(errors, fmt.Errorf("failed to start server %s: %w", name, err))
-			}
+			toStart = append(toStart, server)
+		}
+	}
+
+	m.clientsMux.Unlock()
+
+	// Stop servers outside of the critical section
+	for _, client := range toStop {
+		go func(c *Client) {
+			c.Stop() // This has its own timeout handling
+		}(client)
+	}
+
+	// Start newly enabled servers (also outside critical section)
+	var errors []error
+	for _, server := range toStart {
+		client := NewClient(ctx, server)
+
+		// Add to clients map under lock
+		m.clientsMux.Lock()
+		m.clients[server.Name] = client
+		m.clientsMux.Unlock()
+
+		// Start the client (this can take time, so do it outside the lock)
+		if err := client.Start(); err != nil {
+			errors = append(errors, fmt.Errorf("failed to start server %s: %w", server.Name, err))
+			// Remove the failed client from the map
+			m.clientsMux.Lock()
+			delete(m.clients, server.Name)
+			m.clientsMux.Unlock()
 		}
 	}
 

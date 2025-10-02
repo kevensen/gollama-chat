@@ -1,7 +1,6 @@
 package core
 
 import (
-	"context"
 	"fmt"
 	"strings"
 	"testing"
@@ -15,7 +14,7 @@ func TestTabVisibilityBelowHeight31(t *testing.T) {
 		EmbeddingModel: "test-embedding",
 		OllamaURL:      "http://localhost:11434",
 	}
-	ctx := context.Background()
+	ctx := t.Context()
 	model := NewModel(ctx, config)
 
 	// Test specific heights below 31 that were previously problematic

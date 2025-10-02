@@ -9,8 +9,9 @@ import (
 
 func TestModelContextService_BasicOperations(t *testing.T) {
 	service := NewModelContextService()
+	ctx := t.Context()
 	defer func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
+		ctx, cancel := context.WithTimeout(ctx, 1*time.Second)
 		defer cancel()
 		service.Shutdown(ctx)
 	}()
@@ -41,8 +42,9 @@ func TestModelContextService_BasicOperations(t *testing.T) {
 
 func TestModelContextService_Clear(t *testing.T) {
 	service := NewModelContextService()
+	ctx := t.Context()
 	defer func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
+		ctx, cancel := context.WithTimeout(ctx, 1*time.Second)
 		defer cancel()
 		service.Shutdown(ctx)
 	}()
@@ -74,8 +76,9 @@ func TestModelContextService_Clear(t *testing.T) {
 
 func TestModelContextService_ConcurrentAccess(t *testing.T) {
 	service := NewModelContextService()
+	ctx := t.Context()
 	defer func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
+		ctx, cancel := context.WithTimeout(ctx, 1*time.Second)
 		defer cancel()
 		service.Shutdown(ctx)
 	}()
@@ -128,9 +131,9 @@ func TestModelContextService_ShutdownGraceful(t *testing.T) {
 
 	// Add some data
 	service.Set("test", 1234)
-
+	ctx := t.Context()
 	// Shutdown with generous timeout
-	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
+	ctx, cancel := context.WithTimeout(ctx, 1*time.Second)
 	defer cancel()
 
 	err := service.Shutdown(ctx)
@@ -152,9 +155,9 @@ func TestModelContextService_ShutdownGraceful(t *testing.T) {
 
 func TestModelContextService_ShutdownTimeout(t *testing.T) {
 	service := NewModelContextService()
-
+	ctx := t.Context()
 	// Shutdown with very short timeout
-	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Nanosecond)
+	ctx, cancel := context.WithTimeout(ctx, 1*time.Nanosecond)
 	defer cancel()
 
 	err := service.Shutdown(ctx)
@@ -169,8 +172,9 @@ func TestModelContextService_ShutdownTimeout(t *testing.T) {
 // Benchmark to compare with mutex-based approach
 func BenchmarkModelContextService_Get(b *testing.B) {
 	service := NewModelContextService()
+	ctx := b.Context()
 	defer func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
+		ctx, cancel := context.WithTimeout(ctx, 1*time.Second)
 		defer cancel()
 		service.Shutdown(ctx)
 	}()
@@ -188,8 +192,9 @@ func BenchmarkModelContextService_Get(b *testing.B) {
 
 func BenchmarkModelContextService_Set(b *testing.B) {
 	service := NewModelContextService()
+	ctx := b.Context()
 	defer func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
+		ctx, cancel := context.WithTimeout(ctx, 1*time.Second)
 		defer cancel()
 		service.Shutdown(ctx)
 	}()
@@ -240,8 +245,9 @@ func BenchmarkOriginalMutexCache_Set(b *testing.B) {
 // Test to ensure API compatibility with existing cache patterns
 func TestModelContextService_APICompatibility(t *testing.T) {
 	service := NewModelContextService()
+	ctx := t.Context()
 	defer func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
+		ctx, cancel := context.WithTimeout(ctx, 1*time.Second)
 		defer cancel()
 		service.Shutdown(ctx)
 	}()

@@ -1,7 +1,6 @@
 package chat
 
 import (
-	"context"
 	"strings"
 	"testing"
 
@@ -14,7 +13,7 @@ func TestModel_EmptyResponseHandling(t *testing.T) {
 		EmbeddingModel: "test-embedding",
 		OllamaURL:      "http://localhost:11434",
 	}
-	ctx := context.Background()
+	ctx := t.Context()
 	model := NewModel(ctx, config)
 
 	initialMessageCount := len(model.messages)
@@ -65,7 +64,7 @@ func TestModel_WhitespaceOnlyResponseHandling(t *testing.T) {
 		EmbeddingModel: "test-embedding",
 		OllamaURL:      "http://localhost:11434",
 	}
-	ctx := context.Background()
+	ctx := t.Context()
 	model := NewModel(ctx, config)
 
 	initialMessageCount := len(model.messages)

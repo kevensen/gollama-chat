@@ -12,14 +12,13 @@ import (
 )
 
 // setupTestModel creates a test model with mock dependencies
-func setupTestModel() (Model, context.Context, *configuration.Config) {
+func setupTestModel(ctx context.Context) (Model, *configuration.Config) {
 	config := &configuration.Config{
 		ToolTrustLevels: make(map[string]int),
 	}
-	ctx := context.Background()
 	mcpManager := mcp.NewManager(config)
 	model := NewModel(ctx, config, mcpManager)
-	return model, ctx, config
+	return model, config
 }
 
 func TestTrustLevel_String(t *testing.T) {
@@ -47,7 +46,7 @@ func TestNewModel(t *testing.T) {
 	config := &configuration.Config{
 		ToolTrustLevels: make(map[string]int),
 	}
-	ctx := context.Background()
+	ctx := t.Context()
 	mcpManager := mcp.NewManager(config)
 
 	model := NewModel(ctx, config, mcpManager)
@@ -67,7 +66,8 @@ func TestNewModel(t *testing.T) {
 }
 
 func TestToolTrustLevelPersistence(t *testing.T) {
-	model, _, config := setupTestModel()
+	ctx := t.Context()
+	model, config := setupTestModel(ctx)
 
 	// Test updating trust level
 	model.UpdateToolTrust("test_tool", TrustSession)
@@ -80,7 +80,8 @@ func TestToolTrustLevelPersistence(t *testing.T) {
 }
 
 func TestToolRefresh(t *testing.T) {
-	model, _, _ := setupTestModel()
+	ctx := t.Context()
+	model, _ := setupTestModel(ctx)
 
 	// Simulate refreshing tools
 	cmd := model.refreshTools()
@@ -122,7 +123,8 @@ func TestToolRefresh(t *testing.T) {
 }
 
 func TestModel_LoadToolTrustFromConfig(t *testing.T) {
-	model, _, config := setupTestModel()
+	ctx := t.Context()
+	model, config := setupTestModel(ctx)
 	// Override the config with specific trust levels
 	config.ToolTrustLevels = map[string]int{
 		"filesystem_read": int(TrustNone), // Override default
@@ -147,8 +149,8 @@ func TestModel_LoadToolTrustFromConfig(t *testing.T) {
 }
 
 func TestTrustPromptNavigation(t *testing.T) {
-	model, _, _ := setupTestModel()
-
+	ctx := t.Context()
+	model, _ := setupTestModel(ctx)
 	// Create a test tool
 	testTool := Tool{
 		Name:        "test_tool",
@@ -201,7 +203,8 @@ func TestTrustPromptNavigation(t *testing.T) {
 }
 
 func TestTrustLevelDescriptions(t *testing.T) {
-	model, _, _ := setupTestModel()
+	ctx := t.Context()
+	model, _ := setupTestModel(ctx)
 
 	// Create a test tool and show trust prompt
 	testTool := Tool{
@@ -233,7 +236,8 @@ func TestTrustLevelDescriptions(t *testing.T) {
 }
 
 func TestGetTools(t *testing.T) {
-	model, _, _ := setupTestModel()
+	ctx := t.Context()
+	model, _ := setupTestModel(ctx)
 
 	// Add test tools
 	testTools := []Tool{
@@ -253,6 +257,7 @@ func TestGetTools(t *testing.T) {
 
 // Integration test for complete tool authorization flow
 func TestToolAuthorizationFlow(t *testing.T) {
+	ctx := t.Context()
 	tests := []struct {
 		name               string
 		initialTrustLevel  TrustLevel
@@ -278,7 +283,7 @@ func TestToolAuthorizationFlow(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			model, _, _ := setupTestModel()
+			model, _ := setupTestModel(ctx)
 
 			// Setup test tool
 			testTool := Tool{
@@ -327,7 +332,8 @@ func TestToolAuthorizationFlow(t *testing.T) {
 
 // TestCompleteWorkflowWithSequentialCommands demonstrates using output from previous commands
 func TestCompleteWorkflowWithSequentialCommands(t *testing.T) {
-	model, _, config := setupTestModel()
+	ctx := t.Context()
+	model, config := setupTestModel(ctx)
 	// Override the config with specific trust levels
 	config.ToolTrustLevels = map[string]int{
 		"initial_tool": int(TrustNone),
@@ -431,7 +437,8 @@ func TestCompleteWorkflowWithSequentialCommands(t *testing.T) {
 
 // TestMCPToolAuthorization tests that MCP tools follow the same authorization flow as builtin tools
 func TestMCPToolAuthorization(t *testing.T) {
-	model, _, config := setupTestModel()
+	ctx := t.Context()
+	model, config := setupTestModel(ctx)
 
 	// Test Case 1: Set different trust levels for MCP tools
 	config.SetToolTrustLevel("test_server.file_reader", int(TrustNone))
@@ -486,7 +493,8 @@ func TestMCPToolAuthorization(t *testing.T) {
 
 // TestMCPToolTrustLevelPersistence tests that MCP tool trust levels persist correctly
 func TestMCPToolTrustLevelPersistence(t *testing.T) {
-	model, _, config := setupTestModel()
+	ctx := t.Context()
+	model, config := setupTestModel(ctx)
 
 	mcpToolName := "file_server.read_document"
 
@@ -516,7 +524,8 @@ func TestMCPToolTrustLevelPersistence(t *testing.T) {
 
 // TestMCPToolAvailabilityIntegration tests the integration between MCP server status and tool availability
 func TestMCPToolAvailabilityIntegration(t *testing.T) {
-	model, _, config := setupTestModel()
+	ctx := t.Context()
+	model, config := setupTestModel(ctx)
 
 	// Test that trust levels work for MCP tools regardless of server availability
 	runningServerTool := "running_server.active_tool"

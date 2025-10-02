@@ -1,7 +1,6 @@
 package chat
 
 import (
-	"context"
 	"strings"
 	"testing"
 	"time"
@@ -18,7 +17,7 @@ func TestASCIIArtDisplayLogic(t *testing.T) {
 		SelectedCollections: make(map[string]bool),
 	}
 
-	ctx := context.Background()
+	ctx := t.Context()
 
 	tests := []struct {
 		name           string
@@ -93,7 +92,7 @@ func TestASCIIArtNotDisplayedWhenMessagesExist(t *testing.T) {
 		SelectedCollections: make(map[string]bool),
 	}
 
-	ctx := context.Background()
+	ctx := t.Context()
 	model := NewModel(ctx, config)
 
 	// Set large screen dimensions using Update method
