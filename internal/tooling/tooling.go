@@ -177,7 +177,7 @@ type BuiltinTool interface {
 	Name() string
 	Description() string
 	GetAPITool() *api.Tool
-	Execute(args map[string]interface{}) (interface{}, error)
+	Execute(args map[string]any) (any, error)
 }
 
 // NewToolRegistry creates a new tool registry with channel support.
@@ -197,7 +197,7 @@ func NewToolRegistry() *ToolRegistry {
 		shutdown:     make(chan struct{}),
 		done:         make(chan struct{}),
 		responseChannelPool: sync.Pool{
-			New: func() interface{} {
+			New: func() any {
 				return make(chan toolResponse, 1) // Buffered for non-blocking sends
 			},
 		},
@@ -1183,7 +1183,7 @@ func convertMCPSchemaToOllamaParams(schema mcp.ToolSchema) api.ToolFunctionParam
 	}
 
 	for propName, propSchema := range schema.Properties {
-		if propMap, ok := propSchema.(map[string]interface{}); ok {
+		if propMap, ok := propSchema.(map[string]any); ok {
 			property := api.ToolProperty{}
 
 			if propType, exists := propMap["type"]; exists {
@@ -1206,7 +1206,7 @@ func convertMCPSchemaToOllamaParams(schema mcp.ToolSchema) api.ToolFunctionParam
 }
 
 // ExecuteTool executes a tool (builtin or MCP) by name
-func (tr *ToolRegistry) ExecuteTool(name string, args map[string]interface{}) (interface{}, error) {
+func (tr *ToolRegistry) ExecuteTool(name string, args map[string]any) (any, error) {
 	logger := logging.WithComponent("tooling")
 	logger.Info("Executing tool", "name", name, "args", args)
 
@@ -1347,7 +1347,7 @@ func (fst *FileSystemTool) GetAPITool() *api.Tool {
 }
 
 // Execute performs the filesystem operation
-func (fst *FileSystemTool) Execute(args map[string]interface{}) (interface{}, error) {
+func (fst *FileSystemTool) Execute(args map[string]any) (any, error) {
 	action, ok := args["action"].(string)
 	if !ok {
 		return nil, fmt.Errorf("action parameter required and must be a string")
@@ -1382,7 +1382,7 @@ func (fst *FileSystemTool) Execute(args map[string]interface{}) (interface{}, er
 }
 
 // listDirectory lists files and directories in the given path
-func (fst *FileSystemTool) listDirectory(path string) (interface{}, error) {
+func (fst *FileSystemTool) listDirectory(path string) (any, error) {
 	// Check if path exists and is accessible
 	stat, err := os.Stat(path)
 	if err != nil {
@@ -1418,7 +1418,7 @@ func (fst *FileSystemTool) listDirectory(path string) (interface{}, error) {
 		fileInfos = append(fileInfos, fileInfo)
 	}
 
-	return map[string]interface{}{
+	return map[string]any{
 		"path":     path,
 		"entries":  fileInfos,
 		"count":    len(fileInfos),
@@ -1427,7 +1427,7 @@ func (fst *FileSystemTool) listDirectory(path string) (interface{}, error) {
 }
 
 // readFile reads the contents of a file with size limits
-func (fst *FileSystemTool) readFile(path string, maxBytes int) (interface{}, error) {
+func (fst *FileSystemTool) readFile(path string, maxBytes int) (any, error) {
 	// Check if path exists and is accessible
 	stat, err := os.Stat(path)
 	if err != nil {
@@ -1483,7 +1483,7 @@ func (fst *FileSystemTool) readFile(path string, maxBytes int) (interface{}, err
 		}
 	}
 
-	return map[string]interface{}{
+	return map[string]any{
 		"path":       path,
 		"size":       stat.Size(),
 		"modified":   stat.ModTime(),
@@ -1496,7 +1496,7 @@ func (fst *FileSystemTool) readFile(path string, maxBytes int) (interface{}, err
 }
 
 // getWorkingDirectory returns the current working directory
-func (fst *FileSystemTool) getWorkingDirectory() (interface{}, error) {
+func (fst *FileSystemTool) getWorkingDirectory() (any, error) {
 	wd, err := os.Getwd()
 	if err != nil {
 		return nil, fmt.Errorf("cannot get working directory: %v", err)
@@ -1514,7 +1514,7 @@ func (fst *FileSystemTool) getWorkingDirectory() (interface{}, error) {
 		absPath = wd // Fallback to original path
 	}
 
-	return map[string]interface{}{
+	return map[string]any{
 		"path":     wd,
 		"abs_path": absPath,
 		"mode":     stat.Mode().String(),

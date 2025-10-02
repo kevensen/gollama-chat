@@ -235,7 +235,7 @@ func (m *Manager) GetAllTools() map[string][]Tool {
 }
 
 // CallTool calls a tool on a specific server
-func (m *Manager) CallTool(serverName, toolName string, arguments map[string]interface{}) (*CallToolResult, error) {
+func (m *Manager) CallTool(serverName, toolName string, arguments map[string]any) (*CallToolResult, error) {
 	m.clientsMux.RLock()
 	client, exists := m.clients[serverName]
 	m.clientsMux.RUnlock()

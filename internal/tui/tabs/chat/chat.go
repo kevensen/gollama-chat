@@ -33,8 +33,8 @@ type Message struct {
 
 // ToolCallInfo stores tool call information for persistence
 type ToolCallInfo struct {
-	FunctionName string                 `json:"function_name"`
-	Arguments    map[string]interface{} `json:"arguments"`
+	FunctionName string         `json:"function_name"`
+	Arguments    map[string]any `json:"arguments"`
 }
 
 // ToolPermissionRequest represents a pending tool permission request
@@ -574,7 +574,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					toolName := additionalMsg.ToolName
 					if toolName != "" {
 						// Extract arguments from the TOOL_CALL_DATA section
-						var arguments map[string]interface{}
+						var arguments map[string]any
 						if strings.Contains(additionalMsg.Content, "TOOL_CALL_DATA:") {
 							// Parse the tool call data - this is a simplified approach
 							// The format is: TOOL_CALL_DATA:toolname:arguments
@@ -583,17 +583,17 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 								// For now, we'll reconstruct the arguments based on the tool
 								// This is not ideal but works for the filesystem tool
 								if toolName == "filesystem_read" && strings.Contains(additionalMsg.Content, "get_working_directory") {
-									arguments = map[string]interface{}{
+									arguments = map[string]any{
 										"action": "get_working_directory",
 									}
 								} else {
-									arguments = make(map[string]interface{})
+									arguments = make(map[string]any)
 								}
 							} else {
-								arguments = make(map[string]interface{})
+								arguments = make(map[string]any)
 							}
 						} else {
-							arguments = make(map[string]interface{})
+							arguments = make(map[string]any)
 						}
 
 						// Create the complete tool call

@@ -10,29 +10,29 @@ const MCPVersion = "2024-11-05"
 
 // JSON-RPC message types
 type JSONRPCRequest struct {
-	JSONRPC string      `json:"jsonrpc"`
-	ID      interface{} `json:"id"`
-	Method  string      `json:"method"`
-	Params  interface{} `json:"params,omitempty"`
+	JSONRPC string `json:"jsonrpc"`
+	ID      any    `json:"id"`
+	Method  string `json:"method"`
+	Params  any    `json:"params,omitempty"`
 }
 
 type JSONRPCResponse struct {
 	JSONRPC string        `json:"jsonrpc"`
-	ID      interface{}   `json:"id"`
-	Result  interface{}   `json:"result,omitempty"`
+	ID      any           `json:"id"`
+	Result  any           `json:"result,omitempty"`
 	Error   *JSONRPCError `json:"error,omitempty"`
 }
 
 type JSONRPCNotification struct {
-	JSONRPC string      `json:"jsonrpc"`
-	Method  string      `json:"method"`
-	Params  interface{} `json:"params,omitempty"`
+	JSONRPC string `json:"jsonrpc"`
+	Method  string `json:"method"`
+	Params  any    `json:"params,omitempty"`
 }
 
 type JSONRPCError struct {
-	Code    int         `json:"code"`
-	Message string      `json:"message"`
-	Data    interface{} `json:"data,omitempty"`
+	Code    int    `json:"code"`
+	Message string `json:"message"`
+	Data    any    `json:"data,omitempty"`
 }
 
 // MCP Protocol messages
@@ -43,8 +43,8 @@ type InitializeRequest struct {
 }
 
 type ClientCapabilities struct {
-	Experimental map[string]interface{} `json:"experimental,omitempty"`
-	Sampling     *SamplingCapability    `json:"sampling,omitempty"`
+	Experimental map[string]any      `json:"experimental,omitempty"`
+	Sampling     *SamplingCapability `json:"sampling,omitempty"`
 }
 
 type SamplingCapability struct{}
@@ -61,11 +61,11 @@ type InitializeResult struct {
 }
 
 type ServerCapabilities struct {
-	Experimental map[string]interface{} `json:"experimental,omitempty"`
-	Logging      *LoggingCapability     `json:"logging,omitempty"`
-	Prompts      *PromptsCapability     `json:"prompts,omitempty"`
-	Resources    *ResourcesCapability   `json:"resources,omitempty"`
-	Tools        *ToolsCapability       `json:"tools,omitempty"`
+	Experimental map[string]any       `json:"experimental,omitempty"`
+	Logging      *LoggingCapability   `json:"logging,omitempty"`
+	Prompts      *PromptsCapability   `json:"prompts,omitempty"`
+	Resources    *ResourcesCapability `json:"resources,omitempty"`
+	Tools        *ToolsCapability     `json:"tools,omitempty"`
 }
 
 type LoggingCapability struct{}
@@ -94,14 +94,14 @@ type Tool struct {
 }
 
 type ToolSchema struct {
-	Type       string                 `json:"type"`
-	Properties map[string]interface{} `json:"properties,omitempty"`
-	Required   []string               `json:"required,omitempty"`
+	Type       string         `json:"type"`
+	Properties map[string]any `json:"properties,omitempty"`
+	Required   []string       `json:"required,omitempty"`
 }
 
 type CallToolRequest struct {
-	Name      string                 `json:"name"`
-	Arguments map[string]interface{} `json:"arguments,omitempty"`
+	Name      string         `json:"name"`
+	Arguments map[string]any `json:"arguments,omitempty"`
 }
 
 type CallToolResult struct {
@@ -115,7 +115,7 @@ type ToolContent struct {
 }
 
 // Utility functions
-func NewJSONRPCRequest(id interface{}, method string, params interface{}) *JSONRPCRequest {
+func NewJSONRPCRequest(id any, method string, params any) *JSONRPCRequest {
 	return &JSONRPCRequest{
 		JSONRPC: "2.0",
 		ID:      id,
@@ -124,7 +124,7 @@ func NewJSONRPCRequest(id interface{}, method string, params interface{}) *JSONR
 	}
 }
 
-func NewJSONRPCResponse(id interface{}, result interface{}) *JSONRPCResponse {
+func NewJSONRPCResponse(id any, result any) *JSONRPCResponse {
 	return &JSONRPCResponse{
 		JSONRPC: "2.0",
 		ID:      id,
@@ -132,7 +132,7 @@ func NewJSONRPCResponse(id interface{}, result interface{}) *JSONRPCResponse {
 	}
 }
 
-func NewJSONRPCError(id interface{}, code int, message string, data interface{}) *JSONRPCResponse {
+func NewJSONRPCError(id any, code int, message string, data any) *JSONRPCResponse {
 	return &JSONRPCResponse{
 		JSONRPC: "2.0",
 		ID:      id,
@@ -144,9 +144,9 @@ func NewJSONRPCError(id interface{}, code int, message string, data interface{})
 	}
 }
 
-func ParseJSONRPCMessage(data []byte) (interface{}, error) {
+func ParseJSONRPCMessage(data []byte) (any, error) {
 	// First, determine if it's a request, response, or notification
-	var raw map[string]interface{}
+	var raw map[string]any
 	if err := json.Unmarshal(data, &raw); err != nil {
 		return nil, fmt.Errorf("failed to parse JSON: %w", err)
 	}

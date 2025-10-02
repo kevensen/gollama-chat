@@ -13,11 +13,11 @@ import (
 
 // OllamaModel represents a model from the Ollama API
 type OllamaModel struct {
-	Name       string                 `json:"name"`
-	ModifiedAt string                 `json:"modified_at"`
-	Size       int64                  `json:"size"`
-	Digest     string                 `json:"digest"`
-	Details    map[string]interface{} `json:"details"`
+	Name       string         `json:"name"`
+	ModifiedAt string         `json:"modified_at"`
+	Size       int64          `json:"size"`
+	Digest     string         `json:"digest"`
+	Details    map[string]any `json:"details"`
 }
 
 // OllamaModelsResponse represents the response from /api/tags

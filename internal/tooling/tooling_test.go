@@ -11,7 +11,7 @@ import (
 func TestFileSystemTool_GetWorkingDirectory(t *testing.T) {
 	fst := &FileSystemTool{}
 
-	args := map[string]interface{}{
+	args := map[string]any{
 		"action": "get_working_directory",
 	}
 
@@ -20,7 +20,7 @@ func TestFileSystemTool_GetWorkingDirectory(t *testing.T) {
 		t.Fatalf("Execute failed: %v", err)
 	}
 
-	resultMap, ok := result.(map[string]interface{})
+	resultMap, ok := result.(map[string]any)
 	if !ok {
 		t.Fatalf("Expected result to be map[string]interface{}, got %T", result)
 	}
@@ -60,7 +60,7 @@ func TestFileSystemTool_ListDirectory(t *testing.T) {
 		t.Fatalf("Failed to get working directory: %v", err)
 	}
 
-	args := map[string]interface{}{
+	args := map[string]any{
 		"action": "list_directory",
 		"path":   wd,
 	}
@@ -70,7 +70,7 @@ func TestFileSystemTool_ListDirectory(t *testing.T) {
 		t.Fatalf("Execute failed: %v", err)
 	}
 
-	resultMap, ok := result.(map[string]interface{})
+	resultMap, ok := result.(map[string]any)
 	if !ok {
 		t.Fatalf("Expected result to be map[string]interface{}, got %T", result)
 	}
@@ -99,7 +99,7 @@ func TestFileSystemTool_ReadFile(t *testing.T) {
 	}
 	defer os.Remove(tempFile)
 
-	args := map[string]interface{}{
+	args := map[string]any{
 		"action": "read_file",
 		"path":   tempFile,
 	}
@@ -109,7 +109,7 @@ func TestFileSystemTool_ReadFile(t *testing.T) {
 		t.Fatalf("Execute failed: %v", err)
 	}
 
-	resultMap, ok := result.(map[string]interface{})
+	resultMap, ok := result.(map[string]any)
 	if !ok {
 		t.Fatalf("Expected result to be map[string]interface{}, got %T", result)
 	}
@@ -139,7 +139,7 @@ func TestFileSystemTool_ReadFile(t *testing.T) {
 func TestFileSystemTool_InvalidAction(t *testing.T) {
 	fst := &FileSystemTool{}
 
-	args := map[string]interface{}{
+	args := map[string]any{
 		"action": "invalid_action",
 		"path":   "/tmp",
 	}
@@ -204,8 +204,8 @@ func (m *MockBuiltinTool) GetAPITool() *api.Tool {
 	}
 }
 
-func (m *MockBuiltinTool) Execute(args map[string]interface{}) (interface{}, error) {
-	return map[string]interface{}{
+func (m *MockBuiltinTool) Execute(args map[string]any) (any, error) {
+	return map[string]any{
 		"tool":   m.name,
 		"result": "mock execution result",
 		"args":   args,
@@ -291,7 +291,7 @@ func TestToolRegistry_ExecuteTool(t *testing.T) {
 	registry.Register(tool)
 
 	// Test successful execution
-	args := map[string]interface{}{
+	args := map[string]any{
 		"param1": "value1",
 		"param2": 42,
 	}
@@ -301,7 +301,7 @@ func TestToolRegistry_ExecuteTool(t *testing.T) {
 		t.Errorf("Tool execution should not fail: %v", err)
 	}
 
-	resultMap, ok := result.(map[string]interface{})
+	resultMap, ok := result.(map[string]any)
 	if !ok {
 		t.Error("Result should be a map")
 	}
@@ -340,7 +340,7 @@ func TestDefaultRegistry_FileSystemTool(t *testing.T) {
 	}
 
 	// Test the tool can be executed (basic validation)
-	_, err := DefaultRegistry.ExecuteTool("filesystem_read", map[string]interface{}{
+	_, err := DefaultRegistry.ExecuteTool("filesystem_read", map[string]any{
 		"operation": "get_working_directory",
 	})
 

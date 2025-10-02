@@ -9,7 +9,7 @@ func TestJSONRPCMessageParsing(t *testing.T) {
 	tests := []struct {
 		name     string
 		input    string
-		expected interface{}
+		expected any
 		wantErr  bool
 	}{
 		{
@@ -19,7 +19,7 @@ func TestJSONRPCMessageParsing(t *testing.T) {
 				JSONRPC: "2.0",
 				ID:      float64(1), // JSON numbers are parsed as float64
 				Method:  "test",
-				Params:  map[string]interface{}{"arg1": "value1"},
+				Params:  map[string]any{"arg1": "value1"},
 			},
 			wantErr: false,
 		},
@@ -29,7 +29,7 @@ func TestJSONRPCMessageParsing(t *testing.T) {
 			expected: &JSONRPCResponse{
 				JSONRPC: "2.0",
 				ID:      float64(1),
-				Result:  map[string]interface{}{"success": true},
+				Result:  map[string]any{"success": true},
 			},
 			wantErr: false,
 		},
@@ -52,7 +52,7 @@ func TestJSONRPCMessageParsing(t *testing.T) {
 			expected: &JSONRPCNotification{
 				JSONRPC: "2.0",
 				Method:  "notification",
-				Params:  map[string]interface{}{"data": "value"},
+				Params:  map[string]any{"data": "value"},
 			},
 			wantErr: false,
 		},
@@ -202,7 +202,7 @@ func TestMCPProtocolSerialization(t *testing.T) {
 		req := InitializeRequest{
 			ProtocolVersion: MCPVersion,
 			Capabilities: ClientCapabilities{
-				Experimental: map[string]interface{}{"test": true},
+				Experimental: map[string]any{"test": true},
 			},
 			ClientInfo: ClientInfo{
 				Name:    "test-client",
@@ -234,8 +234,8 @@ func TestMCPProtocolSerialization(t *testing.T) {
 			Description: "A test tool",
 			InputSchema: ToolSchema{
 				Type: "object",
-				Properties: map[string]interface{}{
-					"input": map[string]interface{}{
+				Properties: map[string]any{
+					"input": map[string]any{
 						"type":        "string",
 						"description": "Input parameter",
 					},

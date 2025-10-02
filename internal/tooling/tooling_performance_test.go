@@ -12,7 +12,7 @@ type testMetricsTool struct{}
 
 func (t *testMetricsTool) Name() string        { return "metrics_test_tool" }
 func (t *testMetricsTool) Description() string { return "Tool for testing metrics" }
-func (t *testMetricsTool) Execute(args map[string]interface{}) (interface{}, error) {
+func (t *testMetricsTool) Execute(args map[string]any) (any, error) {
 	return "test result", nil
 }
 func (t *testMetricsTool) GetAPITool() *api.Tool {

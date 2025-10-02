@@ -386,7 +386,7 @@ func convertMCPSchemaToOllamaParams(schema mcp.ToolSchema) api.ToolFunctionParam
 	}
 
 	for propName, propSchema := range schema.Properties {
-		if propMap, ok := propSchema.(map[string]interface{}); ok {
+		if propMap, ok := propSchema.(map[string]any); ok {
 			property := api.ToolProperty{}
 
 			if propType, exists := propMap["type"]; exists {

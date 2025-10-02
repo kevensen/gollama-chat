@@ -66,7 +66,7 @@ func modelContextSizeFromAPI(modelName string, ollamaURL string) (int, error) {
 	}
 
 	// Prepare the API request
-	payload := map[string]interface{}{
+	payload := map[string]any{
 		"model": modelName,
 	}
 	payloadBytes, err := json.Marshal(payload)

@@ -87,7 +87,7 @@ func TestExecuteToolCallsAndCreateMessages(t *testing.T) {
 				{
 					Function: api.ToolCallFunction{
 						Name: tt.toolName,
-						Arguments: map[string]interface{}{
+						Arguments: map[string]any{
 							"action": "get_working_directory",
 						},
 					},
@@ -194,7 +194,7 @@ func TestMCPToolAuthorizationFlow(t *testing.T) {
 				{
 					Function: api.ToolCallFunction{
 						Name: tt.toolName,
-						Arguments: map[string]interface{}{
+						Arguments: map[string]any{
 							"date1": "today",
 							"date2": "2026-02-01",
 						},
@@ -246,7 +246,7 @@ func TestDefaultTrustLevel(t *testing.T) {
 		{
 			Function: api.ToolCallFunction{
 				Name: "filesystem_read",
-				Arguments: map[string]interface{}{
+				Arguments: map[string]any{
 					"action": "get_working_directory",
 				},
 			},
@@ -298,7 +298,7 @@ func TestSecurityBypass(t *testing.T) {
 		{
 			Function: api.ToolCallFunction{
 				Name: "days_between",
-				Arguments: map[string]interface{}{
+				Arguments: map[string]any{
 					"date1": "today",
 					"date2": "2026-02-01",
 				},

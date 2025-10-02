@@ -12,8 +12,8 @@ import (
 func TestNormalizeID(t *testing.T) {
 	tests := []struct {
 		name     string
-		input    interface{}
-		expected interface{}
+		input    any
+		expected any
 	}{
 		{
 			name:     "int64 unchanged",
@@ -61,7 +61,7 @@ func TestJSONRPCIDMatching(t *testing.T) {
 	// Test that JSON unmarshaling preserves ID matching
 	tests := []struct {
 		name         string
-		requestID    interface{}
+		requestID    any
 		responseJSON string
 		shouldMatch  bool
 	}{
@@ -132,7 +132,7 @@ func TestClientResponseHandling(t *testing.T) {
 		response := &JSONRPCResponse{
 			JSONRPC: "2.0",
 			ID:      float64(1), // JSON unmarshals numbers as float64
-			Result:  map[string]interface{}{"test": "value"},
+			Result:  map[string]any{"test": "value"},
 		}
 
 		// Handle the response
@@ -160,7 +160,7 @@ func TestClientResponseHandling(t *testing.T) {
 		response := &JSONRPCResponse{
 			JSONRPC: "2.0",
 			ID:      float64(999), // No pending request with this ID
-			Result:  map[string]interface{}{"test": "value"},
+			Result:  map[string]any{"test": "value"},
 		}
 
 		// This should not panic or cause issues

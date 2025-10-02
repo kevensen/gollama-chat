@@ -982,7 +982,7 @@ func TestToolPermissionRequest(t *testing.T) {
 		ToolCall: api.ToolCall{
 			Function: api.ToolCallFunction{
 				Name: "filesystem_read",
-				Arguments: map[string]interface{}{
+				Arguments: map[string]any{
 					"action": "get_working_directory",
 				},
 			},
@@ -1082,7 +1082,7 @@ func TestToolPermissionResponses(t *testing.T) {
 				ToolCall: api.ToolCall{
 					Function: api.ToolCallFunction{
 						Name: "filesystem_read",
-						Arguments: map[string]interface{}{
+						Arguments: map[string]any{
 							"action": "get_working_directory",
 						},
 					},
@@ -1167,7 +1167,7 @@ func TestPlaceholderTextChange(t *testing.T) {
 		ToolCall: api.ToolCall{
 			Function: api.ToolCallFunction{
 				Name:      "filesystem_read",
-				Arguments: map[string]interface{}{},
+				Arguments: map[string]any{},
 			},
 		},
 		ToolName:    "filesystem_read",

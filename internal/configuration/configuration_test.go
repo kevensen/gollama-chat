@@ -321,8 +321,8 @@ func TestDefaultConfig(t *testing.T) {
 
 	tests := []struct {
 		name     string
-		actual   interface{}
-		expected interface{}
+		actual   any
+		expected any
 	}{
 		{"ChatModel", config.ChatModel, "llama3.3:latest"},
 		{"EmbeddingModel", config.EmbeddingModel, ""},
