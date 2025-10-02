@@ -3,6 +3,7 @@ package logging
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -36,9 +37,18 @@ func TestGetDefaultLogDir(t *testing.T) {
 		t.Errorf("Expected log directory to contain 'gollama-chat', got %s", logDir)
 	}
 
-	// Should end with logs
-	if !strings.HasSuffix(logDir, "logs") {
-		t.Errorf("Expected log directory to end with 'logs', got %s", logDir)
+	// Platform-specific path ending validation
+	switch runtime.GOOS {
+	case "darwin":
+		// macOS: should end with "gollama-chat" (~/Library/Logs/gollama-chat)
+		if !strings.HasSuffix(logDir, "gollama-chat") {
+			t.Errorf("Expected macOS log directory to end with 'gollama-chat', got %s", logDir)
+		}
+	default:
+		// Linux, Windows, etc.: should end with "logs" (appname/logs)
+		if !strings.HasSuffix(logDir, "logs") {
+			t.Errorf("Expected log directory to end with 'logs', got %s", logDir)
+		}
 	}
 }
 
