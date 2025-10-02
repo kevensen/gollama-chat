@@ -648,19 +648,29 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 			// If we found a permission request, don't add the final assistant response yet
 			if !permissionFound {
-				// Add final assistant response only if it has content
-				if strings.TrimSpace(msg.content) != "" {
-					assistantMsg := Message{
-						Role:    "assistant",
-						Content: msg.content,
-						Time:    time.Now(),
-						ULID:    msg.conversationULID, // Use conversation ULID for traceability
-					}
-					m.messages = append(m.messages, assistantMsg)
-
-					// Log assistant response with conversation ULID
-					logConversationEvent(msg.conversationULID, "assistant", msg.content, m.config.ChatModel)
+				// Always add assistant response to maintain conversation flow
+				var responseContent string
+				if strings.TrimSpace(msg.content) == "" {
+					// If LLM returned empty/whitespace content, provide helpful message
+					responseContent = "I'm unable to provide a response to that question. This might be because I don't have access to the necessary tools or information to answer it properly."
+				} else {
+					responseContent = msg.content
 				}
+
+				assistantMsg := Message{
+					Role:    "assistant",
+					Content: responseContent,
+					Time:    time.Now(),
+					ULID:    msg.conversationULID, // Use conversation ULID for traceability
+				}
+				m.messages = append(m.messages, assistantMsg)
+
+				// Log assistant response with conversation ULID (log original content for debugging)
+				logContent := responseContent
+				if strings.TrimSpace(msg.content) == "" {
+					logContent = fmt.Sprintf("[Empty LLM response] %s", responseContent)
+				}
+				logConversationEvent(msg.conversationULID, "assistant", logContent, m.config.ChatModel)
 			}
 		}
 
