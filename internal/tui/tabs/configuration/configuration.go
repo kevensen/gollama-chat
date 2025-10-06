@@ -130,20 +130,22 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "ollama":
 			logger.Info("Ollama connection check completed",
 				"url", m.editConfig.OllamaURL,
+				"full_url", msg.FullURL,
 				"status", msg.Status,
 				"error", msg.Error)
 			m.ollamaStatus = msg.Status
 			if msg.Error != nil {
-				logger.Warn("Ollama connection failed", "url", m.editConfig.OllamaURL, "error", msg.Error)
+				logger.Warn("Ollama connection failed", "url", m.editConfig.OllamaURL, "full_url", msg.FullURL, "error", msg.Error)
 			}
 		case "chromadb":
 			logger.Info("ChromaDB connection check completed",
 				"url", m.editConfig.ChromaDBURL,
+				"full_url", msg.FullURL,
 				"status", msg.Status,
 				"error", msg.Error)
 			m.chromaDBStatus = msg.Status
 			if msg.Error != nil {
-				logger.Warn("ChromaDB connection failed", "url", m.editConfig.ChromaDBURL, "error", msg.Error)
+				logger.Warn("ChromaDB connection failed", "url", m.editConfig.ChromaDBURL, "full_url", msg.FullURL, "error", msg.Error)
 			}
 		}
 
