@@ -158,7 +158,7 @@ Default configuration:
 
 #### Global
 - `Tab` / `Shift+Tab` - Switch between tabs
-- `Ctrl+C` / `q` - Quit application
+- `Ctrl+C` - Quit application
 
 #### Chat Tab
 - `Enter` - Send message

@@ -148,7 +148,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.KeyMsg:
 		logger := logging.WithComponent("tui-core")
 		switch msg.String() {
-		case "ctrl+c", "q":
+		case "ctrl+c":
 			logger.Info("User requested quit")
 			return m, tea.Quit
 		case "tab":
@@ -332,6 +332,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if configMsg, isConfigUpdate := msg.(ragTab.ConfigUpdatedMsg); isConfigUpdate {
 			// Update the main config
 			m.config = configMsg.Config
+
+			// Update the chat model with the new configuration (handles system prompt precedence)
+			m.chatModel.UpdateFromConfiguration(configMsg.Config)
 
 			// Update the RAG model with the new configuration
 			ragModel, ragCmd := m.ragModel.Update(configMsg)
@@ -554,7 +557,7 @@ func (m Model) renderFooter() string {
 	var helpText string
 	if m.width >= 80 {
 		// Full help with tab-specific commands
-		helpText = "Tab/Shift+Tab: Switch tabs • Ctrl+C/q: Quit"
+		helpText = "Tab/Shift+Tab: Switch tabs • Ctrl+C: Quit"
 		switch m.activeTab {
 		case ChatTab:
 			helpText += " • Enter: Send • ↑/↓: Scroll • Ctrl+S: System Prompt"
@@ -565,13 +568,13 @@ func (m Model) renderFooter() string {
 		}
 	} else if m.width >= 50 {
 		// Medium detail
-		helpText = "Tab/Shift+Tab: Switch tabs • Ctrl+C/q: Quit"
+		helpText = "Tab/Shift+Tab: Switch tabs • Ctrl+C: Quit"
 	} else if m.width >= 25 {
 		// Basic help
 		helpText = "Tab: Switch • Ctrl+C: Quit"
 	} else if m.width >= 15 {
 		// Minimal help
-		helpText = "Tab:Switch Q:Quit"
+		helpText = "Tab:Switch Ctrl+C:Quit"
 	} else if m.width >= 8 {
 		// Ultra-minimal
 		helpText = "Tab Q"

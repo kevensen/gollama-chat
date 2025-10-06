@@ -232,7 +232,6 @@ func TestModel_Update_QuitKeys(t *testing.T) {
 
 	quitKeys := []tea.KeyMsg{
 		{Type: tea.KeyCtrlC},
-		{Type: tea.KeyRunes, Runes: []rune{'q'}},
 	}
 
 	for _, keyMsg := range quitKeys {

@@ -525,7 +525,7 @@ func (m Model) renderToolsList() string {
 
 	// Render title, instructions, content, and message
 	title := titleStyle.Render("Tools")
-	instructions := instructionsStyle.Render("↑/↓: navigate • Enter: toggle trust level • r: refresh • q: quit")
+	instructions := instructionsStyle.Render("↑/↓: navigate • Enter: toggle trust level • r: refresh • Ctrl+C: quit")
 
 	var messageSection string
 	if m.message != "" {

@@ -57,9 +57,10 @@ type Model struct {
 	showSystemPrompt bool // Whether to show the system prompt
 
 	// Session system prompt feature
-	sessionSystemPrompt  string // Current session system prompt (not persisted)
-	systemPromptEditMode bool   // Whether we're in edit mode for the system prompt
-	systemPromptEditor   string // Content being edited in the system prompt editor
+	sessionSystemPrompt       string // Current session system prompt (not persisted)
+	sessionSystemPromptManual bool   // Whether session prompt was manually modified (takes precedence over default)
+	systemPromptEditMode      bool   // Whether we're in edit mode for the system prompt
+	systemPromptEditor        string // Content being edited in the system prompt editor
 
 	// Performance optimization: Cache model context size
 	cachedModelName   string // Track which model's context size we cached
@@ -173,21 +174,22 @@ func NewModel(ctx context.Context, config *configuration.Config) Model {
 	messageCache := NewMessageCache()
 
 	return Model{
-		config:                  config,
-		messages:                []Message{},
-		ragService:              ragService,
-		ctx:                     ctx,
-		inputModel:              &inputModel,
-		messageCache:            messageCache,
-		styles:                  DefaultStyles(),
-		messagesNeedsUpdate:     true,
-		statusNeedsUpdate:       true,
-		systemPromptNeedsUpdate: true,
-		showSystemPrompt:        false,                         // Initially hidden
-		pendingToolCalls:        make(map[string]api.ToolCall), // Initialize tool calls map
-		sessionSystemPrompt:     config.DefaultSystemPrompt,    // Initialize with default
-		systemPromptEditMode:    false,
-		systemPromptEditor:      "",
+		config:                    config,
+		messages:                  []Message{},
+		ragService:                ragService,
+		ctx:                       ctx,
+		inputModel:                &inputModel,
+		messageCache:              messageCache,
+		styles:                    DefaultStyles(),
+		messagesNeedsUpdate:       true,
+		statusNeedsUpdate:         true,
+		systemPromptNeedsUpdate:   true,
+		showSystemPrompt:          false,                         // Initially hidden
+		pendingToolCalls:          make(map[string]api.ToolCall), // Initialize tool calls map
+		sessionSystemPrompt:       config.DefaultSystemPrompt,    // Initialize with default
+		sessionSystemPromptManual: false,                         // Initially uses default prompt
+		systemPromptEditMode:      false,
+		systemPromptEditor:        "",
 	}
 }
 
@@ -385,6 +387,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				// Save the edited prompt and exit edit mode
 				debugLog("Saving prompt and exiting edit mode")
 				m.sessionSystemPrompt = m.systemPromptEditor
+
+				// If the saved prompt matches the default, reset manual flag to allow future updates
+				if m.sessionSystemPrompt == m.config.DefaultSystemPrompt {
+					m.sessionSystemPromptManual = false
+					debugLog("Saved prompt matches default, resetting manual flag")
+				} else {
+					m.sessionSystemPromptManual = true // Mark as manually modified
+					debugLog("Saved prompt differs from default, setting manual flag")
+				}
+
 				m.systemPromptEditMode = false
 				m.systemPromptEditor = ""
 				m.systemPromptNeedsUpdate = true
@@ -426,6 +438,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.showSystemPrompt && m.systemPromptEditMode {
 				m.systemPromptEditor = m.config.DefaultSystemPrompt
 				m.systemPromptNeedsUpdate = true
+				debugLog("Restored default system prompt in editor")
 				return m, nil
 			}
 
@@ -947,4 +960,25 @@ func (m Model) denyToolExecution() (tea.Model, tea.Cmd) {
 	m.messageCache.InvalidateCache()
 
 	return m, nil
+}
+
+// UpdateFromConfiguration updates the session system prompt from configuration changes
+// but only if the session prompt has not been manually modified
+func (m *Model) UpdateFromConfiguration(newConfig *configuration.Config) {
+	// Only update session system prompt if it has not been manually modified
+	if !m.sessionSystemPromptManual {
+		if m.sessionSystemPrompt != newConfig.DefaultSystemPrompt {
+			logger := logging.WithComponent("chat")
+			logger.Info("Updating session system prompt from configuration change",
+				"old_prompt_length", len(m.sessionSystemPrompt),
+				"new_prompt_length", len(newConfig.DefaultSystemPrompt),
+				"manual_override", m.sessionSystemPromptManual)
+
+			m.sessionSystemPrompt = newConfig.DefaultSystemPrompt
+			m.systemPromptNeedsUpdate = true
+		}
+	}
+
+	// Update the configuration reference
+	m.config = newConfig
 }
