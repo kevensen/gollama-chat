@@ -154,9 +154,10 @@ func Initialize(config *Config) error {
 		ReplaceAttr: func(groups []string, a slog.Attr) slog.Attr {
 			// Add caller information for better debugging
 			if a.Key == slog.SourceKey {
-				source := a.Value.Any().(*slog.Source)
-				// Shorten the file path to just the filename
-				source.File = filepath.Base(source.File)
+				if source, ok := a.Value.Any().(*slog.Source); ok {
+					// Shorten the file path to just the filename
+					source.File = filepath.Base(source.File)
+				}
 			}
 			return a
 		},

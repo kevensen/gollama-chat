@@ -241,3 +241,27 @@ func TestLogLevelString(t *testing.T) {
 		}
 	}
 }
+
+func TestSlogSourceHandling(t *testing.T) {
+	// Test that the logger initialization doesn't panic with the slog.Source handling
+	tempDir := t.TempDir()
+	config := &Config{
+		Level:      LevelDebug,
+		EnableFile: true,
+		LogDir:     tempDir,
+	}
+
+	// This should not panic even with various slog attribute types
+	err := Initialize(config)
+	if err != nil {
+		t.Fatalf("Failed to initialize logger: %v", err)
+	}
+
+	// Test debug logging which triggered the original panic
+	logger := GetLogger()
+	logger.Debug("Test message with source", "key", "value", "source", "test")
+	logger.Info("Test info message", "index", 1, "name", "test", "available", true)
+
+	// Clean up
+	Close()
+}
