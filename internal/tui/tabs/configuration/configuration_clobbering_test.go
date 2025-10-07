@@ -3,6 +3,7 @@ package configuration
 import (
 	"testing"
 
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/kevensen/gollama-chat/internal/configuration"
 )
 
@@ -124,5 +125,54 @@ func TestEditConfigPreservesChanges(t *testing.T) {
 	}
 	if len(model.editConfig.MCPServers) > 0 && model.editConfig.MCPServers[0].Name != "new-server" {
 		t.Errorf("Expected MCP server name 'new-server', got %s", model.editConfig.MCPServers[0].Name)
+	}
+}
+
+// TestBooleanToggleFunctionality tests that boolean fields can be toggled properly
+func TestBooleanToggleFunctionality(t *testing.T) {
+	// Create initial config with RAG disabled
+	initialConfig := configuration.DefaultConfig()
+	initialConfig.RAGEnabled = false
+	initialConfig.EnableFileLogging = true
+
+	// Create configuration tab model
+	model := NewModel(initialConfig)
+
+	// Test toggling RAG enabled field
+	model.activeField = RAGEnabledField
+	if model.editConfig.RAGEnabled != false {
+		t.Errorf("Expected RAG to be initially false, got %t", model.editConfig.RAGEnabled)
+	}
+
+	// Simulate pressing Enter to toggle the field
+	toggleMsg := tea.KeyMsg{Type: tea.KeyEnter}
+	updatedModel, _ := model.handleNavigationKeys(toggleMsg)
+	model = updatedModel.(Model)
+
+	if model.editConfig.RAGEnabled != true {
+		t.Errorf("Expected RAG to be true after toggle, got %t", model.editConfig.RAGEnabled)
+	}
+
+	// Toggle again
+	updatedModel, _ = model.handleNavigationKeys(toggleMsg)
+	model = updatedModel.(Model)
+
+	if model.editConfig.RAGEnabled != false {
+		t.Errorf("Expected RAG to be false after second toggle, got %t", model.editConfig.RAGEnabled)
+	}
+
+	// Test toggling Enable File Logging field
+	model.activeField = EnableFileLoggingField
+	if model.editConfig.EnableFileLogging != true {
+		t.Errorf("Expected EnableFileLogging to be initially true, got %t", model.editConfig.EnableFileLogging)
+	}
+
+	// Simulate pressing Space to toggle the field
+	spaceMsg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{' '}}
+	updatedModel, _ = model.handleNavigationKeys(spaceMsg)
+	model = updatedModel.(Model)
+
+	if model.editConfig.EnableFileLogging != false {
+		t.Errorf("Expected EnableFileLogging to be false after toggle, got %t", model.editConfig.EnableFileLogging)
 	}
 }

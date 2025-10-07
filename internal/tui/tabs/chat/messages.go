@@ -10,6 +10,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/ollama/ollama/api"
 
+	"github.com/kevensen/gollama-chat/internal/logging"
 	"github.com/kevensen/gollama-chat/internal/tooling"
 )
 
@@ -22,9 +23,35 @@ func (m Model) sendMessage(prompt string, conversationULID string) tea.Cmd {
 		if m.config.RAGEnabled && m.ragService != nil && m.ragService.IsReady() {
 			ragResult, err := m.ragService.QueryDocuments(m.ctx, prompt)
 			if err == nil && ragResult != nil && len(ragResult.Documents) > 0 {
+				// Log successful RAG document retrieval
+				ragLogger := logging.WithComponent("rag")
+				ragLogger.Info("Documents retrieved",
+					"conversation_id", conversationULID,
+					"query_preview", contentPreview(prompt, 100),
+					"documents_count", len(ragResult.Documents),
+					"timestamp", time.Now().Format(time.RFC3339),
+				)
+
 				// Add formatted RAG documents to the prompt
 				fullPrompt = ragResult.FormatDocumentsForPrompt() + prompt
+			} else if err != nil {
+				// Log RAG query failure
+				ragLogger := logging.WithComponent("rag")
+				ragLogger.Warn("RAG query failed",
+					"conversation_id", conversationULID,
+					"query_preview", contentPreview(prompt, 100),
+					"error", err.Error(),
+					"timestamp", time.Now().Format(time.RFC3339),
+				)
+				fullPrompt = prompt
 			} else {
+				// Log when no relevant documents found
+				ragLogger := logging.WithComponent("rag")
+				ragLogger.Info("No relevant documents found",
+					"conversation_id", conversationULID,
+					"query_preview", contentPreview(prompt, 100),
+					"timestamp", time.Now().Format(time.RFC3339),
+				)
 				fullPrompt = prompt
 			}
 		} else {

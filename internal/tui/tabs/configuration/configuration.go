@@ -276,6 +276,70 @@ func (m Model) handleNavigationKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.message = "Cannot fetch models: Ollama server not connected"
 				m.messageStyle = m.messageStyle.Foreground(lipgloss.Color("9"))
 			}
+		} else if m.activeField == RAGEnabledField || m.activeField == EnableFileLoggingField {
+			// Toggle boolean fields directly
+			logger := logging.WithComponent("configuration_tab")
+			fieldName := m.getFieldName(m.activeField)
+			var oldValue, newValue bool
+
+			switch m.activeField {
+			case RAGEnabledField:
+				oldValue = m.editConfig.RAGEnabled
+				m.editConfig.RAGEnabled = !m.editConfig.RAGEnabled
+				newValue = m.editConfig.RAGEnabled
+			case EnableFileLoggingField:
+				oldValue = m.editConfig.EnableFileLogging
+				m.editConfig.EnableFileLogging = !m.editConfig.EnableFileLogging
+				newValue = m.editConfig.EnableFileLogging
+			}
+
+			logger.Info("Boolean field toggled", "field", fieldName, "old_value", oldValue, "new_value", newValue)
+
+			// Auto-save the configuration after toggle
+			if updateCmd, saveErr := m.autoSaveConfiguration(); saveErr != nil {
+				m.message = fmt.Sprintf("Field toggled but save failed: %s", saveErr.Error())
+				m.messageStyle = m.messageStyle.Foreground(lipgloss.Color("11")) // Yellow for warning
+				return m, nil
+			} else {
+				m.message = fmt.Sprintf("Field toggled to %t and saved", newValue)
+				m.messageStyle = m.messageStyle.Foreground(lipgloss.Color("10"))
+				return m, updateCmd
+			}
+		} else if m.activeField == LogLevelField {
+			// Cycle through log levels
+			logger := logging.WithComponent("configuration_tab")
+			fieldName := m.getFieldName(m.activeField)
+			oldValue := m.editConfig.LogLevel
+
+			// Define the log levels in order
+			logLevels := []string{"debug", "info", "warn", "error"}
+			currentIndex := -1
+
+			// Find current log level index
+			for i, level := range logLevels {
+				if level == oldValue {
+					currentIndex = i
+					break
+				}
+			}
+
+			// Cycle to next level (wrap around to beginning if at end)
+			nextIndex := (currentIndex + 1) % len(logLevels)
+			newValue := logLevels[nextIndex]
+			m.editConfig.LogLevel = newValue
+
+			logger.Info("Log level cycled", "field", fieldName, "old_value", oldValue, "new_value", newValue)
+
+			// Auto-save the configuration after changing log level
+			if updateCmd, saveErr := m.autoSaveConfiguration(); saveErr != nil {
+				m.message = fmt.Sprintf("Log level changed but save failed: %s", saveErr.Error())
+				m.messageStyle = m.messageStyle.Foreground(lipgloss.Color("11")) // Yellow for warning
+				return m, nil
+			} else {
+				m.message = fmt.Sprintf("Log level changed to '%s' and saved", newValue)
+				m.messageStyle = m.messageStyle.Foreground(lipgloss.Color("10"))
+				return m, updateCmd
+			}
 		} else {
 			// Start editing the active field
 			logger := logging.WithComponent("configuration_tab")
@@ -481,13 +545,13 @@ func (m Model) renderConfigurationViewWithWidth(width int) string {
 		{ChatModelField, "Chat Model", m.editConfig.ChatModel, "Model used for chat conversations (Enter: Select from list)"},
 		{EmbeddingModelField, "Embedding Model", m.editConfig.EmbeddingModel, "Model for embeddings (Enter: Select from list)"},
 		{DefaultSystemPromptField, "Default System Prompt", m.editConfig.DefaultSystemPrompt, "System prompt sent with each message"},
-		{RAGEnabledField, "RAG Enabled", fmt.Sprintf("%t", m.editConfig.RAGEnabled), "Enable Retrieval Augmented Generation"},
+		{RAGEnabledField, "RAG Enabled", fmt.Sprintf("%t", m.editConfig.RAGEnabled), "Enable Retrieval Augmented Generation (Enter/Space: Toggle)"},
 		{OllamaURLField, "Ollama URL", m.editConfig.OllamaURL, "URL of the Ollama server"},
 		{ChromaDBURLField, "ChromaDB URL", m.editConfig.ChromaDBURL, "URL of the ChromaDB server"},
 		{ChromaDBDistanceField, "ChromaDB Distance", fmt.Sprintf("%.2f", m.editConfig.ChromaDBDistance), "Distance threshold for cosine similarity (0-2 range)"},
 		{MaxDocumentsField, "Max Documents", fmt.Sprintf("%d", m.editConfig.MaxDocuments), "Maximum documents for RAG"},
-		{LogLevelField, "Log Level", m.editConfig.LogLevel, "Logging level (debug, info, warn, error)"},
-		{EnableFileLoggingField, "Enable File Logging", fmt.Sprintf("%t", m.editConfig.EnableFileLogging), "Enable logging to file"},
+		{LogLevelField, "Log Level", m.editConfig.LogLevel, "Logging level (Enter/Space: Cycle through debug → info → warn → error)"},
+		{EnableFileLoggingField, "Enable File Logging", fmt.Sprintf("%t", m.editConfig.EnableFileLogging), "Enable logging to file (Enter/Space: Toggle)"},
 	}
 
 	for _, field := range fields {
@@ -561,6 +625,18 @@ func (m Model) renderField(field Field, label, value, help string) string {
 				displayValue = displayValue[:m.cursor] + "█" + displayValue[m.cursor+1:]
 			}
 		}
+	} else if field == RAGEnabledField || field == EnableFileLoggingField {
+		// Special formatting for toggle fields
+		var toggleSymbol, toggleColor string
+		if value == "true" {
+			toggleSymbol = "●"
+			toggleColor = "10" // Green
+		} else {
+			toggleSymbol = "○"
+			toggleColor = "240" // Gray
+		}
+		toggleStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(toggleColor))
+		displayValue = fmt.Sprintf("%s %s", toggleStyle.Render(toggleSymbol), value)
 	}
 
 	// Add connectivity status for URL fields
@@ -748,6 +824,7 @@ func (m Model) setCurrentFieldValue(value string) error {
 		logger.Info("Default system prompt changed", "old_length", len(oldValue), "new_length", len(m.editConfig.DefaultSystemPrompt))
 
 	case LogLevelField:
+		// LogLevel is now handled by cycling, but keep validation for programmatic use
 		value = strings.ToLower(strings.TrimSpace(value))
 		validLevels := []string{"debug", "info", "warn", "error"}
 		isValid := false
