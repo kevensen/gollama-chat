@@ -23,14 +23,40 @@ func (m Model) sendMessage(prompt string, conversationULID string) tea.Cmd {
 		if m.config.RAGEnabled && m.ragService != nil && m.ragService.IsReady() {
 			ragResult, err := m.ragService.QueryDocuments(m.ctx, prompt)
 			if err == nil && ragResult != nil && len(ragResult.Documents) > 0 {
-				// Log successful RAG document retrieval
+				// Log successful RAG document retrieval with detailed information
 				ragLogger := logging.WithComponent("rag")
+
+				// Create summary of collections and distances
+				collections := make(map[string]int)
+				var distances []float32
+				for _, doc := range ragResult.Documents {
+					collections[doc.Collection]++
+					distances = append(distances, doc.Distance)
+				}
+
 				ragLogger.Info("Documents retrieved",
 					"conversation_id", conversationULID,
 					"query_preview", contentPreview(prompt, 100),
 					"documents_count", len(ragResult.Documents),
+					"collections_with_results", collections,
+					"distance_range", fmt.Sprintf("%.3f-%.3f", minFloat32(distances), maxFloat32(distances)),
+					"distance_threshold", m.config.ChromaDBDistance,
 					"timestamp", time.Now().Format(time.RFC3339),
 				)
+
+				// Log individual document details at debug level if needed
+				for i, doc := range ragResult.Documents {
+					ragLogger.Debug("Retrieved document",
+						"conversation_id", conversationULID,
+						"document_index", i+1,
+						"document_id", doc.ID,
+						"collection", doc.Collection,
+						"distance", doc.Distance,
+						"relevance_score", fmt.Sprintf("%.3f", 1.0-doc.Distance),
+						"content_preview", contentPreview(doc.Content, 150),
+						"metadata_keys", getMetadataKeys(doc.Metadata),
+					)
+				}
 
 				// Add formatted RAG documents to the prompt
 				fullPrompt = ragResult.FormatDocumentsForPrompt() + prompt
@@ -407,4 +433,41 @@ func (m Model) formatMessage(msg Message) []string {
 	lines = append(lines, "")
 
 	return lines
+}
+
+// minFloat32 returns the minimum value in a slice of float32
+func minFloat32(values []float32) float32 {
+	if len(values) == 0 {
+		return 0
+	}
+	min := values[0]
+	for _, v := range values[1:] {
+		if v < min {
+			min = v
+		}
+	}
+	return min
+}
+
+// maxFloat32 returns the maximum value in a slice of float32
+func maxFloat32(values []float32) float32 {
+	if len(values) == 0 {
+		return 0
+	}
+	max := values[0]
+	for _, v := range values[1:] {
+		if v > max {
+			max = v
+		}
+	}
+	return max
+}
+
+// getMetadataKeys returns a slice of keys from metadata map
+func getMetadataKeys(metadata map[string]string) []string {
+	keys := make([]string, 0, len(metadata))
+	for key := range metadata {
+		keys = append(keys, key)
+	}
+	return keys
 }

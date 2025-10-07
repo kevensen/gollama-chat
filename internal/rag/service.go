@@ -10,6 +10,7 @@ import (
 	"github.com/amikos-tech/chroma-go/pkg/embeddings"
 	"github.com/amikos-tech/chroma-go/pkg/embeddings/ollama"
 	"github.com/kevensen/gollama-chat/internal/configuration"
+	"github.com/kevensen/gollama-chat/internal/logging"
 )
 
 // RetrievedDocument represents a document retrieved from ChromaDB with relevance score
@@ -48,31 +49,56 @@ func NewService(config *configuration.Config) *Service {
 
 // Initialize sets up the ChromaDB client and embedding function
 func (s *Service) Initialize(ctx context.Context) error {
+	logger := logging.WithComponent("rag")
+
 	if s.config.ChromaDBURL == "" {
 		return fmt.Errorf("ChromaDB URL not configured")
 	}
 
+	logger.Info("Initializing RAG service",
+		"chromadb_url", s.config.ChromaDBURL,
+		"ollama_url", s.config.OllamaURL,
+		"embedding_model", s.config.EmbeddingModel,
+	)
+
 	// Create ChromaDB client
+	logger.Info("Creating ChromaDB client", "chromadb_url", s.config.ChromaDBURL)
 	client, err := v2.NewHTTPClient(v2.WithBaseURL(s.config.ChromaDBURL))
 	if err != nil {
+		logger.Error("Failed to create ChromaDB client", "error", err.Error())
 		return fmt.Errorf("failed to create ChromaDB client: %w", err)
 	}
 
 	// Test connection
+	logger.Info("Testing connection to ChromaDB data store")
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 
-	_, err = client.ListCollections(ctx)
+	collections, err := client.ListCollections(ctx)
 	if err != nil {
+		logger.Error("Failed to connect to ChromaDB data store",
+			"chromadb_url", s.config.ChromaDBURL,
+			"error", err.Error(),
+		)
 		return fmt.Errorf("failed to connect to ChromaDB: %w", err)
 	}
 
+	logger.Info("Successfully connected to ChromaDB data store",
+		"available_collections", len(collections),
+		"chromadb_url", s.config.ChromaDBURL,
+	)
+
 	// Create Ollama embedding function
+	logger.Info("Creating Ollama embedding function",
+		"ollama_url", s.config.OllamaURL,
+		"embedding_model", s.config.EmbeddingModel,
+	)
 	embeddingFunc, err := ollama.NewOllamaEmbeddingFunction(
 		ollama.WithBaseURL(s.config.OllamaURL),
 		ollama.WithModel(embeddings.EmbeddingModel(s.config.EmbeddingModel)),
 	)
 	if err != nil {
+		logger.Error("Failed to create Ollama embedding function", "error", err.Error())
 		return fmt.Errorf("failed to create Ollama embedding function: %w", err)
 	}
 
@@ -80,6 +106,7 @@ func (s *Service) Initialize(ctx context.Context) error {
 	s.embeddingFunc = embeddingFunc
 	s.connected = true
 
+	logger.Info("RAG service initialization completed successfully")
 	return nil
 }
 
@@ -100,6 +127,8 @@ func (s *Service) IsReady() bool {
 
 // QueryDocuments retrieves relevant documents for the given query
 func (s *Service) QueryDocuments(ctx context.Context, query string) (*RAGResult, error) {
+	logger := logging.WithComponent("rag")
+
 	if !s.connected {
 		return nil, fmt.Errorf("RAG service not connected to ChromaDB")
 	}
@@ -112,6 +141,14 @@ func (s *Service) QueryDocuments(ctx context.Context, query string) (*RAGResult,
 		return nil, fmt.Errorf("no collections selected for RAG")
 	}
 
+	// Log the start of RAG query with selected collections
+	logger.Info("Starting RAG query",
+		"query_preview", contentPreview(query, 100),
+		"selected_collections", s.selectedCollections,
+		"max_documents", s.config.MaxDocuments,
+		"distance_threshold", s.config.ChromaDBDistance,
+	)
+
 	result := &RAGResult{
 		Query:     query,
 		Documents: make([]RetrievedDocument, 0),
@@ -119,11 +156,28 @@ func (s *Service) QueryDocuments(ctx context.Context, query string) (*RAGResult,
 
 	// Query each selected collection
 	for _, collectionName := range s.selectedCollections {
+		// Log accessing each collection
+		logger.Info("Accessing collection",
+			"collection_name", collectionName,
+			"chromadb_url", s.config.ChromaDBURL,
+		)
+
 		docs, err := s.queryCollection(ctx, collectionName, query)
 		if err != nil {
 			// Log error but continue with other collections
+			logger.Warn("Failed to query collection",
+				"collection_name", collectionName,
+				"error", err.Error(),
+			)
 			continue
 		}
+
+		// Log successful collection query
+		logger.Info("Collection query completed",
+			"collection_name", collectionName,
+			"documents_found", len(docs),
+		)
+
 		result.Documents = append(result.Documents, docs...)
 	}
 
@@ -134,19 +188,48 @@ func (s *Service) QueryDocuments(ctx context.Context, query string) (*RAGResult,
 
 	// Limit total documents to maxDocuments from config
 	if len(result.Documents) > s.config.MaxDocuments {
+		logger.Info("Limiting documents to max",
+			"total_found", len(result.Documents),
+			"max_documents", s.config.MaxDocuments,
+		)
 		result.Documents = result.Documents[:s.config.MaxDocuments]
 	}
+
+	// Log final results
+	logger.Info("RAG query completed",
+		"total_documents_returned", len(result.Documents),
+		"collections_queried", len(s.selectedCollections),
+	)
 
 	return result, nil
 }
 
 // queryCollection queries a specific collection for relevant documents
 func (s *Service) queryCollection(ctx context.Context, collectionName, query string) ([]RetrievedDocument, error) {
+	logger := logging.WithComponent("rag")
+
+	// Log attempting to get collection
+	logger.Info("Getting collection from data store",
+		"collection_name", collectionName,
+		"chromadb_url", s.config.ChromaDBURL,
+	)
+
 	// Get the collection
 	collection, err := s.client.GetCollection(ctx, collectionName)
 	if err != nil {
+		logger.Warn("Failed to get collection",
+			"collection_name", collectionName,
+			"error", err.Error(),
+		)
 		return nil, fmt.Errorf("failed to get collection %s: %w", collectionName, err)
 	}
+
+	// Log successful collection access and querying
+	logger.Info("Querying collection",
+		"collection_name", collectionName,
+		"max_results", s.config.MaxDocuments,
+		"distance_threshold", s.config.ChromaDBDistance,
+	)
 
 	// Query the collection
 	queryResult, err := collection.Query(
@@ -156,14 +239,22 @@ func (s *Service) queryCollection(ctx context.Context, collectionName, query str
 		v2.WithIncludeQuery("documents", "metadatas", "distances"),
 	)
 	if err != nil {
+		logger.Warn("Failed to query collection",
+			"collection_name", collectionName,
+			"error", err.Error(),
+		)
 		return nil, fmt.Errorf("failed to query collection %s: %w", collectionName, err)
 	}
 
 	documents := make([]RetrievedDocument, 0)
+	totalResults := 0
+	filteredResults := 0
 
 	// Process query results
 	for groupIdx, group := range queryResult.GetDocumentsGroups() {
 		for i, doc := range group {
+			totalResults++
+
 			// Get distance for this document
 			var distance float32 = 1.0 // Default high distance
 			if distanceGroups := queryResult.GetDistancesGroups(); len(distanceGroups) > groupIdx && len(distanceGroups[groupIdx]) > i {
@@ -174,6 +265,8 @@ func (s *Service) queryCollection(ctx context.Context, collectionName, query str
 			if distance > float32(s.config.ChromaDBDistance) {
 				continue
 			}
+
+			filteredResults++
 
 			// Get metadata for this document
 			metadata := make(map[string]string)
@@ -207,6 +300,15 @@ func (s *Service) queryCollection(ctx context.Context, collectionName, query str
 		}
 	}
 
+	// Log detailed results for this collection
+	logger.Info("Collection query results",
+		"collection_name", collectionName,
+		"total_results_returned", totalResults,
+		"results_after_distance_filter", filteredResults,
+		"distance_threshold", s.config.ChromaDBDistance,
+		"relevant_documents", len(documents),
+	)
+
 	return documents, nil
 }
 
@@ -229,4 +331,12 @@ func (r *RAGResult) FormatDocumentsForPrompt() string {
 	prompt += "Please use the above context to help answer the following question:\n"
 
 	return prompt
+}
+
+// contentPreview returns a truncated preview of content for logging
+func contentPreview(content string, maxLength int) string {
+	if len(content) <= maxLength {
+		return content
+	}
+	return content[:maxLength] + "..."
 }
