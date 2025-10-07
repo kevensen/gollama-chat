@@ -20,11 +20,17 @@ func (m Model) sendMessage(prompt string, conversationULID string) tea.Cmd {
 		var fullPrompt string
 
 		// If RAG is enabled, use it to retrieve relevant documents
+		ragLogger := logging.WithComponent("rag")
+		ragLogger.Info("RAG readiness check before query",
+			"rag_enabled", m.config.RAGEnabled,
+			"rag_service_nil", m.ragService == nil,
+			"conversation_id", conversationULID,
+		)
+
 		if m.config.RAGEnabled && m.ragService != nil && m.ragService.IsReady() {
 			ragResult, err := m.ragService.QueryDocuments(m.ctx, prompt)
 			if err == nil && ragResult != nil && len(ragResult.Documents) > 0 {
 				// Log successful RAG document retrieval with detailed information
-				ragLogger := logging.WithComponent("rag")
 
 				// Create summary of collections and distances
 				collections := make(map[string]int)
@@ -81,6 +87,13 @@ func (m Model) sendMessage(prompt string, conversationULID string) tea.Cmd {
 				fullPrompt = prompt
 			}
 		} else {
+			// Log why RAG was not triggered
+			ragLogger.Info("RAG not triggered",
+				"conversation_id", conversationULID,
+				"rag_enabled", m.config.RAGEnabled,
+				"rag_service_nil", m.ragService == nil,
+				"rag_service_ready", m.ragService != nil && m.ragService.IsReady(),
+			)
 			fullPrompt = prompt
 		}
 

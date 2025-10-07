@@ -102,9 +102,42 @@ func (s *Service) Initialize(ctx context.Context) error {
 		return fmt.Errorf("failed to create Ollama embedding function: %w", err)
 	}
 
+	// Test the embedding function to ensure it works
+	logger.Info("Testing embedding function with sample text")
+	testCtx, testCancel := context.WithTimeout(ctx, 10*time.Second)
+	defer testCancel()
+
+	_, err = embeddingFunc.EmbedDocuments(testCtx, []string{"test"})
+	if err != nil {
+		logger.Error("Embedding model test failed - this model does not support embeddings",
+			"embedding_model", s.config.EmbeddingModel,
+			"error", err.Error(),
+		)
+		return fmt.Errorf("embedding model '%s' does not support embeddings. Please use a model like 'nomic-embed-text:latest' or 'all-minilm:latest': %w", s.config.EmbeddingModel, err)
+	}
+	logger.Info("Embedding function test successful")
+
 	s.client = client
 	s.embeddingFunc = embeddingFunc
 	s.connected = true
+
+	// Automatically load and select all collections if none are selected
+	if len(s.selectedCollections) == 0 {
+		logger.Info("No collections selected, auto-loading all available collections")
+
+		collections, err := client.ListCollections(ctx)
+		if err != nil {
+			logger.Warn("Failed to auto-load collections for RAG service", "error", err.Error())
+		} else {
+			s.selectedCollections = make([]string, 0, len(collections))
+			for _, collection := range collections {
+				s.selectedCollections = append(s.selectedCollections, collection.Name())
+			}
+			logger.Info("Auto-selected all available collections for RAG service",
+				"selected_collections", s.selectedCollections,
+				"count", len(s.selectedCollections))
+		}
+	}
 
 	logger.Info("RAG service initialization completed successfully")
 	return nil
@@ -122,10 +155,19 @@ func (s *Service) UpdateSelectedCollections(selectedCollections map[string]bool)
 
 // IsReady checks if the service is ready to perform RAG operations
 func (s *Service) IsReady() bool {
-	return s.config.RAGEnabled && s.connected && len(s.selectedCollections) > 0
-}
+	logger := logging.WithComponent("rag")
+	ready := s.config.RAGEnabled && s.connected && len(s.selectedCollections) > 0
 
-// QueryDocuments retrieves relevant documents for the given query
+	logger.Info("RAG service readiness check",
+		"rag_enabled", s.config.RAGEnabled,
+		"connected", s.connected,
+		"selected_collections_count", len(s.selectedCollections),
+		"selected_collections", s.selectedCollections,
+		"is_ready", ready,
+	)
+
+	return ready
+} // QueryDocuments retrieves relevant documents for the given query
 func (s *Service) QueryDocuments(ctx context.Context, query string) (*RAGResult, error) {
 	logger := logging.WithComponent("rag")
 
@@ -214,8 +256,8 @@ func (s *Service) queryCollection(ctx context.Context, collectionName, query str
 		"chromadb_url", s.config.ChromaDBURL,
 	)
 
-	// Get the collection
-	collection, err := s.client.GetCollection(ctx, collectionName)
+	// Get the collection with embedding function
+	collection, err := s.client.GetCollection(ctx, collectionName, v2.WithEmbeddingFunctionGet(s.embeddingFunc))
 	if err != nil {
 		logger.Warn("Failed to get collection",
 			"collection_name", collectionName,

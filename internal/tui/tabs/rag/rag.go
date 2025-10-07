@@ -10,6 +10,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 
 	"github.com/kevensen/gollama-chat/internal/configuration"
+	"github.com/kevensen/gollama-chat/internal/logging"
 )
 
 // Message types for async operations
@@ -203,6 +204,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 	case connectionTestMsg:
+		logger := logging.WithComponent("rag-tab")
+		logger.Info("Processing connection test message",
+			"connected", msg.connected,
+			"error", msg.err)
+
 		m.loading = false
 		m.connected = msg.connected
 		if msg.err != nil {
@@ -211,12 +217,18 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		} else {
 			m.error = ""
 			if m.connected {
+				logger.Info("Connection successful, starting to load collections")
 				return m, m.loadCollections(m.ctx)
 			}
 		}
 		m.updateViewportContent()
 
 	case collectionsLoadedMsg:
+		logger := logging.WithComponent("rag-tab")
+		logger.Info("Received collections loaded message",
+			"error", msg.err,
+			"collections_count", len(msg.collections))
+
 		m.loading = false
 		if msg.err != nil {
 			m.error = fmt.Sprintf("Failed to load collections: %v", msg.err)
@@ -228,10 +240,18 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.cursor >= len(m.collections) {
 				m.cursor = 0
 			}
+			// Update viewport content immediately after loading collections
+			m.updateViewportContent()
+
+			selectedCollections := m.collectionsService.GetSelectedCollections()
+			logger.Info("Sending collections updated message",
+				"selected_collections", selectedCollections,
+				"count", len(selectedCollections))
+
 			// Send message to notify about collection changes (all collections are selected by default)
 			return m, tea.Cmd(func() tea.Msg {
 				return CollectionsUpdatedMsg{
-					SelectedCollections: m.collectionsService.GetSelectedCollections(),
+					SelectedCollections: selectedCollections,
 				}
 			})
 		}
@@ -341,9 +361,18 @@ func (m Model) View() string {
 // testConnection starts connection testing
 func (m Model) testConnection() tea.Cmd {
 	return tea.Cmd(func() tea.Msg {
+		logger := logging.WithComponent("rag-tab")
+		logger.Info("Testing connection to ChromaDB from RAG tab")
+
 		err := m.collectionsService.TestConnection()
+		connected := m.collectionsService.IsConnected()
+
+		logger.Info("Connection test completed",
+			"connected", connected,
+			"error", err)
+
 		return connectionTestMsg{
-			connected: m.collectionsService.IsConnected(),
+			connected: connected,
 			err:       err,
 		}
 	})
@@ -352,9 +381,18 @@ func (m Model) testConnection() tea.Cmd {
 // loadCollections starts collections loading
 func (m Model) loadCollections(ctx context.Context) tea.Cmd {
 	return tea.Cmd(func() tea.Msg {
+		logger := logging.WithComponent("rag-tab")
+		logger.Info("Starting to load collections from ChromaDB")
+
 		err := m.collectionsService.LoadCollections(ctx)
+		collections := m.collectionsService.GetCollections()
+
+		logger.Info("Collections loading completed",
+			"error", err,
+			"collections_count", len(collections))
+
 		return collectionsLoadedMsg{
-			collections: m.collectionsService.GetCollections(),
+			collections: collections,
 			err:         err,
 		}
 	})

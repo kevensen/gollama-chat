@@ -339,6 +339,27 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					return m, nil
 				}
 			} else if strings.TrimSpace(m.inputModel.Value()) != "" {
+				userInput := strings.TrimSpace(m.inputModel.Value())
+
+				// Handle /clear command
+				if userInput == "/clear" {
+					// Clear chat history
+					m.messages = []Message{}
+					m.inputModel.Clear()
+					m.messagesNeedsUpdate = true
+					m.messageCache.InvalidateCache()
+
+					// Update token count after clearing
+					m.updateTokenCount()
+					m.statusNeedsUpdate = true
+
+					// Log the clear action
+					logger := logging.WithComponent("chat")
+					logger.Info("Chat history cleared by user command")
+
+					return m, nil
+				}
+
 				// Generate a single ULID for the entire conversation flow
 				conversationULID := generateULID()
 				m.currentConversationULID = conversationULID
@@ -346,7 +367,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				// Add user message
 				userMsg := Message{
 					Role:    "user",
-					Content: m.inputModel.Value(),
+					Content: userInput,
 					Time:    time.Now(),
 					ULID:    conversationULID, // Use conversation ULID for user message
 				}
@@ -356,7 +377,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				logConversationEvent(conversationULID, "user", userMsg.Content, m.config.ChatModel)
 
 				// Get the prompt and reset input
-				prompt := m.inputModel.Value()
+				prompt := userInput
 				m.inputModel.Clear()
 				m.inputModel.SetLoading(true)
 

@@ -325,7 +325,7 @@ func TestDefaultConfig(t *testing.T) {
 		expected any
 	}{
 		{"ChatModel", config.ChatModel, "llama3.3:latest"},
-		{"EmbeddingModel", config.EmbeddingModel, ""},
+		{"EmbeddingModel", config.EmbeddingModel, "nomic-embed-text:latest"},
 		{"RAGEnabled", config.RAGEnabled, false},
 		{"OllamaURL", config.OllamaURL, "http://localhost:11434"},
 		{"ChromaDBURL", config.ChromaDBURL, "http://localhost:8000"},

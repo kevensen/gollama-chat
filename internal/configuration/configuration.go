@@ -37,7 +37,7 @@ type Config struct {
 func DefaultConfig() *Config {
 	return &Config{
 		ChatModel:           "llama3.3:latest",
-		EmbeddingModel:      "",
+		EmbeddingModel:      "nomic-embed-text:latest",
 		RAGEnabled:          false,
 		OllamaURL:           "http://localhost:11434",
 		ChromaDBURL:         "http://localhost:8000",

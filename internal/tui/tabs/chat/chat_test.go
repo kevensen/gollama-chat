@@ -1362,3 +1362,66 @@ func TestSequentialChatInteractionFlow(t *testing.T) {
 		t.Logf("  ✓ Sequential data flow verified: follow-up text includes message count from step 3")
 	}
 }
+
+// TestClearCommand tests the /clear command functionality
+func TestClearCommand(t *testing.T) {
+	config := &configuration.Config{
+		ChatModel:           "llama3.1",
+		DefaultSystemPrompt: "Test prompt",
+		SelectedCollections: make(map[string]bool),
+	}
+
+	ctx := context.Background()
+	model := NewModel(ctx, config)
+
+	// Add some test messages to the chat history
+	model.messages = []Message{
+		{
+			Role:    "user",
+			Content: "Hello",
+			Time:    time.Now(),
+			ULID:    "test-ulid-1",
+		},
+		{
+			Role:    "assistant",
+			Content: "Hi there!",
+			Time:    time.Now(),
+			ULID:    "test-ulid-2",
+		},
+	}
+
+	// Verify messages exist before clearing
+	if len(model.messages) != 2 {
+		t.Fatalf("Expected 2 messages before clear, got %d", len(model.messages))
+	}
+
+	// Set input to "/clear"
+	model.inputModel.SetValue("/clear")
+
+	// Create an Enter key message
+	enterMsg := tea.KeyMsg{
+		Type:  tea.KeyEnter,
+		Runes: []rune{'\r'},
+	}
+
+	// Process the Enter key
+	updatedModel, cmd := model.Update(enterMsg)
+	model = updatedModel.(Model)
+
+	// Verify the chat history was cleared
+	if len(model.messages) != 0 {
+		t.Errorf("Expected 0 messages after /clear, got %d", len(model.messages))
+	}
+
+	// Verify the input was cleared
+	if model.inputModel.Value() != "" {
+		t.Errorf("Expected input to be cleared after /clear, got '%s'", model.inputModel.Value())
+	}
+
+	// Verify no command was returned (since /clear doesn't trigger a chat response)
+	if cmd != nil {
+		t.Errorf("Expected no command after /clear, got %v", cmd)
+	}
+
+	t.Log("✓ /clear command successfully cleared chat history and input")
+}

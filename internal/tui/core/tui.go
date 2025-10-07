@@ -2,6 +2,7 @@ package core
 
 import (
 	"context"
+	"time"
 
 	"github.com/kevensen/gollama-chat/internal/configuration"
 	"github.com/kevensen/gollama-chat/internal/logging"
@@ -17,6 +18,9 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 )
+
+// syncRAGCollectionsMsg is sent to trigger RAG collection synchronization
+type syncRAGCollectionsMsg struct{}
 
 // Tab represents the different tabs in the application
 type Tab int
@@ -85,6 +89,10 @@ func (m Model) Init() tea.Cmd {
 		m.toolsModel.Init(),
 		m.mcpModel.Init(),
 		startMCPServersCmd(m.ctx, m.mcpManager),
+		// Sync RAG collections after initialization
+		tea.Tick(time.Second, func(t time.Time) tea.Msg {
+			return syncRAGCollectionsMsg{}
+		}),
 	)
 }
 
@@ -328,6 +336,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 	default:
+		// Handle RAG collection synchronization
+		if _, isSyncRAGMsg := msg.(syncRAGCollectionsMsg); isSyncRAGMsg {
+			m.syncRAGCollections()
+			return m, nil
+		}
+
 		// Handle configuration updates
 		if configMsg, isConfigUpdate := msg.(ragTab.ConfigUpdatedMsg); isConfigUpdate {
 			// Update the main config
@@ -341,6 +355,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.ragModel = ragModel.(ragTab.Model)
 			cmd = ragCmd
 		} else if collectionsMsg, isCollectionsUpdate := msg.(ragTab.CollectionsUpdatedMsg); isCollectionsUpdate {
+			logger := logging.WithComponent("tui-core")
+			logger.Info("Received collections update message",
+				"selected_collections", collectionsMsg.SelectedCollections,
+				"count", len(collectionsMsg.SelectedCollections))
+
 			// Handle collection selection changes
 			selectedCollectionsMap := make(map[string]bool)
 			for _, collectionName := range collectionsMsg.SelectedCollections {
@@ -351,6 +370,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			ragService := m.chatModel.GetRAGService()
 			if ragService != nil {
 				ragService.UpdateSelectedCollections(selectedCollectionsMap)
+				logger.Info("Updated RAG service with selected collections",
+					"collections_map", selectedCollectionsMap)
+			} else {
+				logger.Warn("RAG service is nil, cannot update collections")
 			}
 
 			// Still forward the message to the RAG tab
@@ -588,8 +611,21 @@ func (m Model) renderFooter() string {
 
 // syncRAGCollections synchronizes the selected collections from RAG tab to the chat model's RAG service
 func (m *Model) syncRAGCollections() {
+	logger := logging.WithComponent("tui-core")
+
 	// Get the selected collections from the RAG tab
 	selectedCollectionNames := m.ragModel.GetSelectedCollections()
+
+	logger.Info("Syncing RAG collections",
+		"rag_tab_collections", selectedCollectionNames,
+		"count", len(selectedCollectionNames))
+
+	// If the RAG tab has no collections selected, don't override the RAG service
+	// (it might have auto-selected collections during initialization)
+	if len(selectedCollectionNames) == 0 {
+		logger.Info("RAG tab has no collections selected, preserving RAG service selections")
+		return
+	}
 
 	// Convert to the map format expected by UpdateSelectedCollections
 	selectedCollectionsMap := make(map[string]bool)
@@ -601,6 +637,8 @@ func (m *Model) syncRAGCollections() {
 	ragService := m.chatModel.GetRAGService()
 	if ragService != nil {
 		ragService.UpdateSelectedCollections(selectedCollectionsMap)
+		logger.Info("Updated RAG service with collections from RAG tab",
+			"collections_map", selectedCollectionsMap)
 	}
 }
 

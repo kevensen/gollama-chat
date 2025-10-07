@@ -38,7 +38,7 @@ func NewModel() Model {
 		prompt:      "> ",
 		loading:     false,
 		ragStatus:   "",
-		placeholder: "Type your question...",
+		placeholder: "Type your question... (/clear to clear history)",
 	}
 }
 
