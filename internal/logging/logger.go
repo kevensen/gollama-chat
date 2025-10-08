@@ -273,6 +273,31 @@ func WithComponent(component string) *Logger {
 	return GetLogger().WithComponent(component)
 }
 
+// UpdateLevel updates the logging level for the global logger at runtime
+func UpdateLevel(newLevel LogLevel) {
+	if globalLogger != nil {
+		globalLogger.level = newLevel
+		// Note: We cannot update slog handler level at runtime without recreating it
+		// For now, we'll update our internal level which is checked in our logging methods
+		// In a future improvement, we could reinitialize the handler completely
+	}
+}
+
+// Reconfigure reinitializes the global logger with a new configuration
+// This allows changing log levels and other settings at runtime
+func Reconfigure(config *Config) error {
+	// Close the existing logger first
+	if globalLogger != nil {
+		if err := globalLogger.Close(); err != nil {
+			// Log the error but don't fail the reconfiguration
+			log.Printf("Warning: Failed to close existing logger: %v", err)
+		}
+	}
+
+	// Reinitialize with the new configuration
+	return Initialize(config)
+}
+
 // Close closes the global logger
 func Close() error {
 	if globalLogger != nil {

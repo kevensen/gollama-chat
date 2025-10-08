@@ -3,6 +3,7 @@ package tooling
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/ollama/ollama/api"
@@ -349,4 +350,359 @@ func TestDefaultRegistry_FileSystemTool(t *testing.T) {
 	if err != nil && err.Error() == "tool filesystem_read not found" {
 		t.Error("filesystem_read tool should be found in registry")
 	}
+}
+
+// TestExecuteBashTool_BasicExecution tests basic command execution
+func TestExecuteBashTool_BasicExecution(t *testing.T) {
+	ebt := &ExecuteBashTool{}
+
+	tests := []struct {
+		name        string
+		command     string
+		expectError bool
+		checkFields []string
+	}{
+		{
+			name:        "echo command",
+			command:     "echo 'Hello World'",
+			expectError: false,
+			checkFields: []string{"stdout", "stderr", "exit_code", "success", "duration_ms"},
+		},
+		{
+			name:        "pwd command",
+			command:     "pwd",
+			expectError: false,
+			checkFields: []string{"stdout", "stderr", "exit_code", "success", "duration_ms"},
+		},
+		{
+			name:        "date command",
+			command:     "date",
+			expectError: false,
+			checkFields: []string{"stdout", "stderr", "exit_code", "success", "duration_ms"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			args := map[string]any{
+				"command": tt.command,
+			}
+
+			result, err := ebt.Execute(args)
+			if (err != nil) != tt.expectError {
+				t.Errorf("Execute() error = %v, expectError %v", err, tt.expectError)
+				return
+			}
+
+			if !tt.expectError {
+				resultMap, ok := result.(map[string]any)
+				if !ok {
+					t.Fatalf("Expected result to be map[string]interface{}, got %T", result)
+				}
+
+				// Check all required fields are present
+				for _, field := range tt.checkFields {
+					if _, ok := resultMap[field]; !ok {
+						t.Errorf("Result missing '%s' field", field)
+					}
+				}
+
+				// Check command field matches input
+				if resultMap["command"] != tt.command {
+					t.Errorf("Expected command '%s', got '%s'", tt.command, resultMap["command"])
+				}
+
+				// For successful commands, exit_code should be 0
+				if exitCode, ok := resultMap["exit_code"].(int); ok && exitCode == 0 {
+					if success, ok := resultMap["success"].(bool); !ok || !success {
+						t.Error("Expected success to be true for exit code 0")
+					}
+				}
+			}
+		})
+	}
+}
+
+// TestExecuteBashTool_WorkingDirectory tests command execution with working directory
+func TestExecuteBashTool_WorkingDirectory(t *testing.T) {
+	ebt := &ExecuteBashTool{}
+
+	// Create a temporary directory for testing
+	tempDir := t.TempDir()
+
+	args := map[string]any{
+		"command":     "pwd",
+		"working_dir": tempDir,
+	}
+
+	result, err := ebt.Execute(args)
+	if err != nil {
+		t.Fatalf("Execute failed: %v", err)
+	}
+
+	resultMap, ok := result.(map[string]any)
+	if !ok {
+		t.Fatalf("Expected result to be map[string]interface{}, got %T", result)
+	}
+
+	// Check that working_dir field is set correctly
+	if resultMap["working_dir"] != tempDir {
+		t.Errorf("Expected working_dir '%s', got '%s'", tempDir, resultMap["working_dir"])
+	}
+
+	// Check that stdout contains the temp directory path
+	stdout, ok := resultMap["stdout"].(string)
+	if !ok {
+		t.Error("stdout should be a string")
+	}
+
+	// The output should contain the temp directory path
+	if !filepath.IsAbs(stdout) && !filepath.IsAbs(tempDir) {
+		// Convert both to absolute paths for comparison
+		absTemp, _ := filepath.Abs(tempDir)
+		absStdout, _ := filepath.Abs(strings.TrimSpace(stdout))
+		if absStdout != absTemp {
+			t.Errorf("pwd output '%s' doesn't match expected working directory '%s'", absStdout, absTemp)
+		}
+	}
+}
+
+// TestExecuteBashTool_ErrorHandling tests various error conditions
+func TestExecuteBashTool_ErrorHandling(t *testing.T) {
+	ebt := &ExecuteBashTool{}
+
+	tests := []struct {
+		name        string
+		args        map[string]any
+		expectError bool
+		errorText   string
+	}{
+		{
+			name:        "missing command",
+			args:        map[string]any{},
+			expectError: true,
+			errorText:   "command parameter required",
+		},
+		{
+			name: "empty command",
+			args: map[string]any{
+				"command": "",
+			},
+			expectError: true,
+			errorText:   "command cannot be empty",
+		},
+		{
+			name: "non-string command",
+			args: map[string]any{
+				"command": 123,
+			},
+			expectError: true,
+			errorText:   "command parameter required and must be a string",
+		},
+		{
+			name: "invalid working directory",
+			args: map[string]any{
+				"command":     "echo test",
+				"working_dir": "/nonexistent/directory/path",
+			},
+			expectError: true,
+			errorText:   "working directory",
+		},
+		{
+			name: "working directory is file",
+			args: map[string]any{
+				"command":     "echo test",
+				"working_dir": "/etc/passwd", // This is a file, not a directory
+			},
+			expectError: true,
+			errorText:   "is not a directory",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result, err := ebt.Execute(tt.args)
+			if (err != nil) != tt.expectError {
+				t.Errorf("Execute() error = %v, expectError %v", err, tt.expectError)
+				return
+			}
+
+			if tt.expectError && err != nil {
+				if !strings.Contains(err.Error(), tt.errorText) {
+					t.Errorf("Expected error to contain '%s', got '%s'", tt.errorText, err.Error())
+				}
+			}
+
+			if !tt.expectError && result == nil {
+				t.Error("Expected result to not be nil for successful execution")
+			}
+		})
+	}
+}
+
+// TestExecuteBashTool_CommandFailure tests commands that fail with non-zero exit codes
+func TestExecuteBashTool_CommandFailure(t *testing.T) {
+	ebt := &ExecuteBashTool{}
+
+	args := map[string]any{
+		"command": "exit 1", // Command that exits with code 1
+	}
+
+	result, err := ebt.Execute(args)
+	if err != nil {
+		t.Fatalf("Execute should not return error for command with non-zero exit code: %v", err)
+	}
+
+	resultMap, ok := result.(map[string]any)
+	if !ok {
+		t.Fatalf("Expected result to be map[string]interface{}, got %T", result)
+	}
+
+	// Check exit code is 1
+	if exitCode, ok := resultMap["exit_code"].(int); !ok || exitCode != 1 {
+		t.Errorf("Expected exit_code to be 1, got %v", resultMap["exit_code"])
+	}
+
+	// Check success is false
+	if success, ok := resultMap["success"].(bool); !ok || success {
+		t.Error("Expected success to be false for non-zero exit code")
+	}
+}
+
+// TestExecuteBashTool_Timeout tests command timeout functionality
+func TestExecuteBashTool_Timeout(t *testing.T) {
+	ebt := &ExecuteBashTool{}
+
+	// Use a command that will definitely exist and sleep
+	args := map[string]any{
+		"command": "bash -c 'sleep 3'", // Command that takes 3 seconds
+		"timeout": 1,                   // 1 second timeout
+	}
+
+	result, err := ebt.Execute(args)
+	if err == nil {
+		t.Error("Expected timeout error for long-running command")
+		if result != nil {
+			t.Logf("Unexpected result: %+v", result)
+		}
+		return
+	}
+
+	if !strings.Contains(err.Error(), "timed out") {
+		t.Errorf("Expected timeout error message, got: %v", err)
+	}
+
+	// Result should be nil on timeout
+	if result != nil {
+		t.Error("Expected result to be nil on timeout")
+	}
+}
+
+// TestExecuteBashTool_TimeoutBoundaries tests timeout parameter validation
+func TestExecuteBashTool_TimeoutBoundaries(t *testing.T) {
+	ebt := &ExecuteBashTool{}
+
+	tests := []struct {
+		name            string
+		timeout         float64
+		expectedTimeout int
+	}{
+		{
+			name:            "negative timeout defaults to 30",
+			timeout:         -5,
+			expectedTimeout: 30,
+		},
+		{
+			name:            "zero timeout defaults to 30",
+			timeout:         0,
+			expectedTimeout: 30,
+		},
+		{
+			name:            "timeout over 300 capped at 300",
+			timeout:         500,
+			expectedTimeout: 300,
+		},
+		{
+			name:            "valid timeout preserved",
+			timeout:         60,
+			expectedTimeout: 60,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			args := map[string]any{
+				"command": "echo test",
+				"timeout": tt.timeout,
+			}
+
+			result, err := ebt.Execute(args)
+			if err != nil {
+				t.Fatalf("Execute failed: %v", err)
+			}
+
+			resultMap, ok := result.(map[string]any)
+			if !ok {
+				t.Fatalf("Expected result to be map[string]interface{}, got %T", result)
+			}
+
+			// Check that timeout field reflects the expected value
+			if timeout, ok := resultMap["timeout"].(int); !ok || timeout != tt.expectedTimeout {
+				t.Errorf("Expected timeout %d, got %v", tt.expectedTimeout, resultMap["timeout"])
+			}
+		})
+	}
+}
+
+// TestExecuteBashTool_Registration tests that the execute_bash tool is properly registered
+func TestExecuteBashTool_Registration(t *testing.T) {
+	// Test that the execute_bash tool is registered in the default registry
+	tool, exists := DefaultRegistry.GetTool("execute_bash")
+	if !exists {
+		t.Error("ExecuteBash tool not found in default registry")
+	}
+
+	if tool.Name() != "execute_bash" {
+		t.Errorf("Expected tool name 'execute_bash', got '%s'", tool.Name())
+	}
+
+	if tool.Description() == "" {
+		t.Error("Tool description is empty")
+	}
+
+	apiTool := tool.GetAPITool()
+	if apiTool == nil {
+		t.Error("API tool is nil")
+	}
+
+	if apiTool.Function.Name != "execute_bash" {
+		t.Errorf("Expected API tool name 'execute_bash', got '%s'", apiTool.Function.Name)
+	}
+
+	// Check required parameters
+	params := apiTool.Function.Parameters
+	if params.Type != "object" {
+		t.Error("Expected parameters type to be 'object'")
+	}
+
+	// Check that command parameter exists and is required
+	if _, ok := params.Properties["command"]; !ok {
+		t.Error("Missing 'command' parameter in API tool definition")
+	}
+
+	foundCommand := false
+	for _, required := range params.Required {
+		if required == "command" {
+			foundCommand = true
+			break
+		}
+	}
+	if !foundCommand {
+		t.Error("'command' should be in required parameters")
+	}
+}
+
+// TestExecuteBashTool_Interface verifies ExecuteBashTool implements BuiltinTool interface
+func TestExecuteBashTool_Interface(t *testing.T) {
+	var _ BuiltinTool = &ExecuteBashTool{}
 }

@@ -37,20 +37,21 @@ const (
 
 // Model represents the configuration tab model
 type Model struct {
-	config         *configuration.Config
-	editConfig     *configuration.Config // Copy for editing
-	activeField    Field
-	editing        bool
-	input          string
-	cursor         int
-	width          int
-	height         int
-	message        string
-	messageStyle   lipgloss.Style
-	ollamaStatus   connection.Status
-	chromaDBStatus connection.Status
-	modelPanel     models.Model
-	showModelPanel bool
+	config                *configuration.Config
+	editConfig            *configuration.Config // Copy for editing
+	activeField           Field
+	editing               bool
+	input                 string
+	cursor                int
+	width                 int
+	height                int
+	message               string
+	messageStyle          lipgloss.Style
+	ollamaStatus          connection.Status
+	chromaDBStatus        connection.Status
+	modelPanel            models.Model
+	showModelPanel        bool
+	systemPromptScrollPos int // Scroll position for system prompt when expanded
 }
 
 // NewModel creates a new configuration model
@@ -248,13 +249,45 @@ func (m Model) handleNavigationKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "up", "k":
 		if m.activeField > 0 {
+			// Reset system prompt scroll when leaving the field
+			if m.activeField == DefaultSystemPromptField {
+				m.systemPromptScrollPos = 0
+			}
 			m.activeField--
 		}
 
 	case "down", "j":
 		if m.activeField < EnableFileLoggingField { // Updated to use actual last field
+			// Reset system prompt scroll when leaving the field
+			if m.activeField == DefaultSystemPromptField {
+				m.systemPromptScrollPos = 0
+			}
 			m.activeField++
 		}
+
+	case "ctrl+u", "page_up":
+		// Only allow scrolling within the system prompt when it's active
+		if m.activeField == DefaultSystemPromptField {
+			m.systemPromptScrollPos -= 5 // Scroll up 5 lines
+			if m.systemPromptScrollPos < 0 {
+				m.systemPromptScrollPos = 0
+			}
+		}
+
+	case "ctrl+d", "page_down":
+		// Only allow scrolling within the system prompt when it's active
+		if m.activeField == DefaultSystemPromptField {
+			m.systemPromptScrollPos += 5 // Scroll down 5 lines
+			// We'll validate max scroll in the render function
+		}
+
+	case "home":
+		// Go to first field
+		m.activeField = ChatModelField
+
+	case "end":
+		// Go to last field
+		m.activeField = EnableFileLoggingField
 
 	case "enter", " ":
 		// Check if we should show model selection panel
@@ -525,7 +558,7 @@ func (m Model) renderConfigurationView() string {
 func (m Model) renderConfigurationViewWithWidth(width int) string {
 	var content []string
 
-	// Title
+	// Title (anchored)
 	titleStyle := lipgloss.NewStyle().
 		Foreground(lipgloss.Color("12")).
 		Bold(true).
@@ -535,8 +568,8 @@ func (m Model) renderConfigurationViewWithWidth(width int) string {
 	content = append(content, titleStyle.Render("Configuration Settings"))
 	content = append(content, "")
 
-	// Configuration fields
-	fields := []struct {
+	// Anchored fields (always visible at top)
+	anchoredFields := []struct {
 		field Field
 		label string
 		value string
@@ -544,7 +577,25 @@ func (m Model) renderConfigurationViewWithWidth(width int) string {
 	}{
 		{ChatModelField, "Chat Model", m.editConfig.ChatModel, "Model used for chat conversations (Enter: Select from list)"},
 		{EmbeddingModelField, "Embedding Model", m.editConfig.EmbeddingModel, "Model for embeddings (Enter: Select from list)"},
-		{DefaultSystemPromptField, "Default System Prompt", m.editConfig.DefaultSystemPrompt, "System prompt sent with each message"},
+	}
+
+	// Render anchored fields
+	for _, field := range anchoredFields {
+		content = append(content, m.renderField(field.field, field.label, field.value, field.help))
+		content = append(content, "")
+	}
+
+	// System Prompt field (special handling - expands in place)
+	content = append(content, m.renderField(DefaultSystemPromptField, "Default System Prompt", m.truncateSystemPrompt(), "System prompt sent with each message"))
+	content = append(content, "")
+
+	// Remaining fields (pushed down by system prompt expansion)
+	remainingFields := []struct {
+		field Field
+		label string
+		value string
+		help  string
+	}{
 		{RAGEnabledField, "RAG Enabled", fmt.Sprintf("%t", m.editConfig.RAGEnabled), "Enable Retrieval Augmented Generation (Enter/Space: Toggle)"},
 		{OllamaURLField, "Ollama URL", m.editConfig.OllamaURL, "URL of the Ollama server"},
 		{ChromaDBURLField, "ChromaDB URL", m.editConfig.ChromaDBURL, "URL of the ChromaDB server"},
@@ -554,7 +605,8 @@ func (m Model) renderConfigurationViewWithWidth(width int) string {
 		{EnableFileLoggingField, "Enable File Logging", fmt.Sprintf("%t", m.editConfig.EnableFileLogging), "Enable logging to file (Enter/Space: Toggle)"},
 	}
 
-	for _, field := range fields {
+	// Render remaining fields
+	for _, field := range remainingFields {
 		content = append(content, m.renderField(field.field, field.label, field.value, field.help))
 		content = append(content, "")
 	}
@@ -569,6 +621,11 @@ func (m Model) renderConfigurationViewWithWidth(width int) string {
 		content = append(content, helpStyle.Render("Enter: Save • Esc: Cancel"))
 	}
 
+	// Add system prompt specific help when active
+	if m.activeField == DefaultSystemPromptField && !m.editing {
+		content = append(content, helpStyle.Render("PgUp/PgDn: Scroll system prompt content"))
+	}
+
 	if m.showModelPanel {
 		content = append(content, helpStyle.Render("Model Selection: ↑/↓: Navigate • Enter: Select • Esc: Cancel"))
 	}
@@ -578,22 +635,67 @@ func (m Model) renderConfigurationViewWithWidth(width int) string {
 		content = append(content, m.messageStyle.Render(m.message))
 	}
 
-	// Container - calculate height like main TUI does for content area
-	tabBarHeight := 1
-	footerHeight := 1
-	contentHeight := m.height - tabBarHeight - footerHeight
+	// Container - use the height as passed from the main TUI
+	// No global scrolling - content is fixed layout with system prompt expanding in place
+	contentHeight := m.height
 	if contentHeight < 1 {
 		contentHeight = 1
 	}
+
+	// Join content and ensure it fits within the available height
+	fullContent := strings.Join(content, "\n")
+
+	// Split content into lines and trim to fit the container
+	contentLines := strings.Split(fullContent, "\n")
+	containerPadding := 4 // 2 for padding + 2 for border
+	maxContentLines := contentHeight - containerPadding
+	if maxContentLines < 1 {
+		maxContentLines = 1
+	}
+
+	// Trim content to fit within container bounds (but preserve anchored content)
+	if len(contentLines) > maxContentLines {
+		contentLines = contentLines[:maxContentLines]
+		// Add indicator that content is truncated if there's room
+		if maxContentLines > 1 {
+			contentLines[maxContentLines-1] = "... (more fields below)"
+		}
+	}
+
+	trimmedContent := strings.Join(contentLines, "\n")
 
 	containerStyle := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(lipgloss.Color("#8A7FD8")).
 		Padding(1, 2).
-		Width(width - 2).
-		Height(contentHeight) // Match main TUI's content height calculation
+		Width(width - 2)
+		// Don't set a fixed height - let the container size itself based on content
 
-	return containerStyle.Render(strings.Join(content, "\n"))
+	return containerStyle.Render(trimmedContent)
+}
+
+// truncateSystemPrompt returns a truncated version of the system prompt unless it's the active field
+func (m Model) truncateSystemPrompt() string {
+	systemPrompt := m.editConfig.DefaultSystemPrompt
+
+	// If this field is active or being edited, show the full prompt
+	if m.activeField == DefaultSystemPromptField {
+		return systemPrompt
+	}
+
+	// Truncate to a reasonable length for display
+	maxLength := 100
+	if len(systemPrompt) <= maxLength {
+		return systemPrompt
+	}
+
+	// Find a good truncation point (try to break at word boundary)
+	truncated := systemPrompt[:maxLength]
+	if lastSpace := strings.LastIndex(truncated, " "); lastSpace > maxLength-20 {
+		truncated = systemPrompt[:lastSpace]
+	}
+
+	return truncated + "..."
 }
 
 // renderField renders a configuration field
@@ -612,6 +714,11 @@ func (m Model) renderField(field Field, label, value, help string) string {
 		valueStyle = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("15")).
 			Background(lipgloss.Color("62"))
+	}
+
+	// Special handling for system prompt field when active
+	if field == DefaultSystemPromptField && isActive {
+		return m.renderExpandedSystemPrompt(labelStyle, valueStyle, isEditing)
 	}
 
 	// Display value with cursor if editing
@@ -662,6 +769,141 @@ func (m Model) renderField(field Field, label, value, help string) string {
 	}
 
 	return fieldLine
+}
+
+// renderExpandedSystemPrompt renders the system prompt in an expanded view that scrolls downward
+func (m Model) renderExpandedSystemPrompt(labelStyle, valueStyle lipgloss.Style, isEditing bool) string {
+	// Calculate available space for the expanded system prompt
+	// The height we receive already excludes tabs and footer space from the main TUI
+	// Reserve space for: title (2 lines), other anchored fields (4 lines), help text (4 lines), and some buffer
+	reservedSpace := 10
+	availableContentHeight := m.height - 4 // Account for container padding/border
+	maxExpandedHeight := availableContentHeight - reservedSpace
+
+	// Ensure we have at least a reasonable minimum but don't go too large
+	if maxExpandedHeight < 2 {
+		maxExpandedHeight = 2 // Minimum height - must show at least something
+	} else if maxExpandedHeight > 10 {
+		maxExpandedHeight = 10 // More conservative cap to ensure other content remains visible
+	}
+
+	// Get the system prompt content
+	systemPrompt := m.editConfig.DefaultSystemPrompt
+	if isEditing {
+		systemPrompt = m.input
+	}
+
+	// Wrap the text to fit the available width
+	textWidth := m.width - 8 // Account for padding and borders
+	if textWidth < 20 {
+		textWidth = 20
+	}
+
+	lines := m.wrapText(systemPrompt, textWidth)
+
+	// Apply scroll offset to the lines
+	visibleLines := lines
+	if m.systemPromptScrollPos > 0 && m.systemPromptScrollPos < len(lines) {
+		visibleLines = lines[m.systemPromptScrollPos:]
+	}
+
+	// Limit to max height
+	if len(visibleLines) > maxExpandedHeight {
+		visibleLines = visibleLines[:maxExpandedHeight]
+	}
+
+	// Add cursor if editing
+	if isEditing && len(visibleLines) > 0 {
+		// Find which line the cursor should be on
+		cursorPos := 0
+		for i, line := range lines {
+			if cursorPos+len(line) >= m.cursor {
+				// Cursor is on this line
+				if i >= m.systemPromptScrollPos && i < m.systemPromptScrollPos+len(visibleLines) {
+					lineIndex := i - m.systemPromptScrollPos
+					localCursor := m.cursor - cursorPos
+					if localCursor <= len(line) {
+						if localCursor == len(line) {
+							visibleLines[lineIndex] = line + "█"
+						} else {
+							visibleLines[lineIndex] = line[:localCursor] + "█" + line[localCursor+1:]
+						}
+					}
+				}
+				break
+			}
+			cursorPos += len(line) + 1 // +1 for newline
+		}
+	}
+
+	// Build the display
+	header := labelStyle.Render("Default System Prompt") + ":"
+
+	// Create a border around the expanded content
+	expandedStyle := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(lipgloss.Color("62")).
+		Padding(0, 1).
+		Width(textWidth + 2).
+		Height(len(visibleLines))
+
+	// Show scroll indicators if needed
+	scrollInfo := ""
+	if len(lines) > maxExpandedHeight {
+		currentPage := (m.systemPromptScrollPos / maxExpandedHeight) + 1
+		totalPages := (len(lines) + maxExpandedHeight - 1) / maxExpandedHeight
+		scrollInfo = fmt.Sprintf(" [Page %d/%d]", currentPage, totalPages)
+	}
+
+	expandedContent := expandedStyle.Render(strings.Join(visibleLines, "\n"))
+
+	helpStyle := lipgloss.NewStyle().
+		Foreground(lipgloss.Color("240")).
+		Italic(true)
+
+	helpText := "PgUp/PgDn: Scroll • Enter: Edit"
+	if isEditing {
+		helpText = "Enter: Save • Esc: Cancel • PgUp/PgDn: Scroll"
+	}
+	help := helpStyle.Render("  " + helpText + scrollInfo)
+
+	return header + "\n" + expandedContent + "\n" + help
+}
+
+// wrapText wraps text to fit within the specified width
+func (m Model) wrapText(text string, width int) []string {
+	if width <= 0 {
+		return []string{text}
+	}
+
+	words := strings.Fields(text)
+	if len(words) == 0 {
+		return []string{""}
+	}
+
+	var lines []string
+	var currentLine strings.Builder
+
+	for _, word := range words {
+		// If adding this word would exceed the width, start a new line
+		if currentLine.Len() > 0 && currentLine.Len()+1+len(word) > width {
+			lines = append(lines, currentLine.String())
+			currentLine.Reset()
+		}
+
+		// Add word to current line
+		if currentLine.Len() > 0 {
+			currentLine.WriteString(" ")
+		}
+		currentLine.WriteString(word)
+	}
+
+	// Add the last line if it has content
+	if currentLine.Len() > 0 {
+		lines = append(lines, currentLine.String())
+	}
+
+	return lines
 }
 
 // formatInlineConnectionStatus formats a connection status for inline display
@@ -920,6 +1162,9 @@ func (m Model) saveConfiguration() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
+	// Check if logging-related settings changed
+	logSettingsChanged := m.config.LogLevel != m.editConfig.LogLevel || m.config.EnableFileLogging != m.editConfig.EnableFileLogging
+
 	if err := m.editConfig.Save(); err != nil {
 		logger.Error("Configuration save failed", "error", err)
 		m.message = fmt.Sprintf("Save error: %s", err.Error())
@@ -931,8 +1176,28 @@ func (m Model) saveConfiguration() (tea.Model, tea.Cmd) {
 	*m.config = *m.editConfig
 	logger.Info("Configuration saved successfully")
 
-	m.message = "Configuration saved successfully!"
-	m.messageStyle = m.messageStyle.Foreground(lipgloss.Color("10"))
+	// If logging settings changed, reconfigure the logging system
+	if logSettingsChanged {
+		logConfig := &logging.Config{
+			Level:        logging.LogLevel(m.config.GetLogLevel()),
+			EnableFile:   m.config.EnableFileLogging,
+			LogDir:       logging.DefaultDir(),
+			EnableStderr: false, // Keep stderr disabled for TUI mode
+		}
+
+		if err := logging.Reconfigure(logConfig); err != nil {
+			logger.Error("Failed to reconfigure logging system", "error", err)
+			m.message = fmt.Sprintf("Configuration saved but logging reconfiguration failed: %s", err.Error())
+			m.messageStyle = m.messageStyle.Foreground(lipgloss.Color("11")) // Yellow for warning
+		} else {
+			logger.Info("Logging system reconfigured", "new_level", m.config.LogLevel, "file_logging", m.config.EnableFileLogging)
+			m.message = "Configuration saved and logging reconfigured successfully!"
+			m.messageStyle = m.messageStyle.Foreground(lipgloss.Color("10"))
+		}
+	} else {
+		m.message = "Configuration saved successfully!"
+		m.messageStyle = m.messageStyle.Foreground(lipgloss.Color("10"))
+	}
 
 	// Send configuration update message to notify other tabs
 	configUpdateCmd := func() tea.Msg {
@@ -956,6 +1221,9 @@ func (m *Model) autoSaveConfiguration() (tea.Cmd, error) {
 		return nil, err
 	}
 
+	// Check if logging-related settings changed
+	logSettingsChanged := m.config.LogLevel != m.editConfig.LogLevel || m.config.EnableFileLogging != m.editConfig.EnableFileLogging
+
 	if err := m.editConfig.Save(); err != nil {
 		logger.Error("Configuration auto-save failed", "error", err)
 		return nil, err
@@ -964,6 +1232,23 @@ func (m *Model) autoSaveConfiguration() (tea.Cmd, error) {
 	// Update the main config
 	*m.config = *m.editConfig
 	logger.Debug("Configuration auto-saved successfully")
+
+	// If logging settings changed, reconfigure the logging system
+	if logSettingsChanged {
+		logConfig := &logging.Config{
+			Level:        logging.LogLevel(m.config.GetLogLevel()),
+			EnableFile:   m.config.EnableFileLogging,
+			LogDir:       logging.DefaultDir(),
+			EnableStderr: false, // Keep stderr disabled for TUI mode
+		}
+
+		if err := logging.Reconfigure(logConfig); err != nil {
+			logger.Error("Failed to reconfigure logging system", "error", err)
+			// Don't fail the save, but log the error
+		} else {
+			logger.Info("Logging system reconfigured", "new_level", m.config.LogLevel, "file_logging", m.config.EnableFileLogging)
+		}
+	}
 
 	// Create command to send configuration update message
 	configUpdateCmd := func() tea.Msg {

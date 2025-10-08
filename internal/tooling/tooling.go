@@ -60,6 +60,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -85,6 +86,7 @@ func init() {
 	// Register built-in tools
 	logger.Info("Registering built-in tools")
 	DefaultRegistry.Register(&FileSystemTool{})
+	DefaultRegistry.Register(&ExecuteBashTool{})
 
 	logger.Info("Default tool registry initialized", "builtinToolCount", len(DefaultRegistry.builtinTools))
 }
@@ -1521,6 +1523,170 @@ func (fst *FileSystemTool) getWorkingDirectory() (any, error) {
 		"modified": stat.ModTime(),
 		"exists":   true,
 		"is_dir":   stat.IsDir(),
+	}, nil
+}
+
+// ExecuteBashTool provides bash command execution
+type ExecuteBashTool struct{}
+
+// ExecuteBashArgs represents arguments for executing a bash command
+type ExecuteBashArgs struct {
+	Command    string `json:"command"`
+	WorkingDir string `json:"working_dir,omitempty"` // Optional working directory
+	Timeout    int    `json:"timeout,omitempty"`     // Optional timeout in seconds (default: 30)
+}
+
+// Name returns the tool name
+func (ebt *ExecuteBashTool) Name() string {
+	return "execute_bash"
+}
+
+// Description returns the tool description
+func (ebt *ExecuteBashTool) Description() string {
+	return "Execute bash commands on the system with optional working directory and timeout"
+}
+
+// GetAPITool returns the Ollama API tool definition
+func (ebt *ExecuteBashTool) GetAPITool() *api.Tool {
+	return &api.Tool{
+		Type: "function",
+		Function: api.ToolFunction{
+			Name:        "execute_bash",
+			Description: "Execute the specified bash command",
+			Parameters: api.ToolFunctionParameters{
+				Type: "object",
+				Properties: map[string]api.ToolProperty{
+					"command": {
+						Type:        api.PropertyType{"string"},
+						Description: "The bash command to execute",
+					},
+					"summary": {
+						Type:        api.PropertyType{"string"},
+						Description: "A brief summary of what the command does (for logging purposes)",
+					},
+				},
+				Required: []string{"command"},
+			},
+		},
+	}
+}
+
+// Execute performs the bash command execution
+func (ebt *ExecuteBashTool) Execute(args map[string]any) (any, error) {
+	command, ok := args["command"].(string)
+	if !ok {
+		return nil, fmt.Errorf("command parameter required and must be a string")
+	}
+
+	// Validate command is not empty
+	if strings.TrimSpace(command) == "" {
+		return nil, fmt.Errorf("command cannot be empty")
+	}
+
+	// Get optional working directory
+	var workingDir string
+	if wd, ok := args["working_dir"].(string); ok {
+		workingDir = strings.TrimSpace(wd)
+		// Validate working directory exists if specified
+		if workingDir != "" {
+			if stat, err := os.Stat(workingDir); err != nil {
+				return nil, fmt.Errorf("working directory '%s' does not exist: %v", workingDir, err)
+			} else if !stat.IsDir() {
+				return nil, fmt.Errorf("working directory '%s' is not a directory", workingDir)
+			}
+		}
+	}
+
+	// Get optional timeout (default: 30 seconds, max: 300 seconds)
+	timeout := 30
+	if t, ok := args["timeout"].(float64); ok {
+		timeout = int(t)
+		if timeout <= 0 {
+			timeout = 30
+		} else if timeout > 300 {
+			timeout = 300 // Max 5 minutes
+		}
+	} else if t, ok := args["timeout"].(int); ok {
+		timeout = t
+		if timeout <= 0 {
+			timeout = 30
+		} else if timeout > 300 {
+			timeout = 300 // Max 5 minutes
+		}
+	}
+
+	return ebt.executeBashCommand(command, workingDir, timeout)
+}
+
+// executeBashCommand executes a bash command with the specified parameters
+func (ebt *ExecuteBashTool) executeBashCommand(command, workingDir string, timeoutSeconds int) (any, error) {
+	// Create the command
+	cmd := exec.Command("bash", "-c", command)
+
+	// Set working directory if specified
+	if workingDir != "" {
+		cmd.Dir = workingDir
+	}
+
+	// Capture both stdout and stderr
+	var stdout, stderr strings.Builder
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	// Start the command
+	startTime := time.Now()
+	err := cmd.Start()
+	if err != nil {
+		return nil, fmt.Errorf("failed to start command: %v", err)
+	}
+
+	// Wait for command with timeout
+	done := make(chan error, 1)
+	go func() {
+		done <- cmd.Wait()
+	}()
+
+	var cmdErr error
+	select {
+	case cmdErr = <-done:
+		// Command completed
+	case <-time.After(time.Duration(timeoutSeconds) * time.Second):
+		// Timeout reached, kill the process
+		if cmd.Process != nil {
+			cmd.Process.Kill()
+		}
+		return nil, fmt.Errorf("command timed out after %d seconds", timeoutSeconds)
+	}
+
+	duration := time.Since(startTime)
+
+	// Get exit code
+	exitCode := 0
+	if cmdErr != nil {
+		if exitError, ok := cmdErr.(*exec.ExitError); ok {
+			exitCode = exitError.ExitCode()
+		} else {
+			return nil, fmt.Errorf("command execution failed: %v", cmdErr)
+		}
+	}
+
+	// Get current working directory for context
+	currentDir := workingDir
+	if currentDir == "" {
+		if wd, err := os.Getwd(); err == nil {
+			currentDir = wd
+		}
+	}
+
+	return map[string]any{
+		"command":     command,
+		"working_dir": currentDir,
+		"stdout":      stdout.String(),
+		"stderr":      stderr.String(),
+		"exit_code":   exitCode,
+		"success":     exitCode == 0,
+		"duration_ms": duration.Milliseconds(),
+		"timeout":     timeoutSeconds,
 	}, nil
 }
 

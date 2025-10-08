@@ -35,6 +35,10 @@ type Config struct {
 
 // DefaultConfig returns a configuration with sensible defaults
 func DefaultConfig() *Config {
+	// Create default tool trust levels with hardcoded values for built-in tools
+	defaultToolTrustLevels := make(map[string]int)
+	defaultToolTrustLevels["execute_bash"] = 1 // Hardcoded: ask for permission
+
 	return &Config{
 		ChatModel:           "llama3.3:latest",
 		EmbeddingModel:      "nomic-embed-text:latest",
@@ -44,11 +48,11 @@ func DefaultConfig() *Config {
 		ChromaDBDistance:    1.0, // Updated for cosine similarity (0-2 range)
 		MaxDocuments:        5,
 		SelectedCollections: make(map[string]bool),
-		ToolTrustLevels:     make(map[string]int),
+		ToolTrustLevels:     defaultToolTrustLevels,
 		MCPServers:          []MCPServer{},
 		LogLevel:            "info",
 		EnableFileLogging:   true,
-		DefaultSystemPrompt: "You are a helpful Q&A bot. Your purpose is to provide direct, accurate answers to user questions. When providing lists of items (such as countries, capitals, features, etc.), format your response using proper numbered or bulleted lists. Be consistent in your formatting. If you don't know the answer, state that you are unable to provide a response.",
+		DefaultSystemPrompt: "You are a helpful AI assistant with access to system tools. You can perform various tasks including executing bash commands and reading files when needed to help answer questions or complete tasks.\n\nAvailable built-in tools:\n- execute_bash: Execute bash commands on the system (requires user permission)\n  - Parameters: command (required), working_dir (optional), timeout (optional, max 300 seconds)\n  - Use for: running commands, checking system info, file operations, etc.\n- filesystem_read: Read local filesystem - get working directory, list directories, and read file contents\n  - Actions: get_working_directory, list_directory, read_file\n  - Use for: exploring file structures, reading configuration files, etc.\n\nWhen you need to use a tool, format your request as a tool call with proper JSON formatting. Always explain what you're doing and why. Your purpose is to provide direct, accurate answers to user questions. When providing lists of items (such as countries, capitals, features, etc.), format your response using proper numbered or bulleted lists. Be consistent in your formatting. If you don't know the answer, state that you are unable to provide a response.",
 	}
 }
 

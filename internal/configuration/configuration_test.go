@@ -539,9 +539,19 @@ func TestDefaultConfig_Validation(t *testing.T) {
 			t.Error("ToolTrustLevels should be initialized")
 		}
 
-		// Should be empty but not nil
-		if len(config.ToolTrustLevels) != 0 {
-			t.Error("ToolTrustLevels should be empty by default")
+		// Should contain hardcoded defaults for built-in tools
+		expectedExecuteBashTrustLevel := 1
+		if len(config.ToolTrustLevels) != 1 {
+			t.Errorf("ToolTrustLevels should contain 1 hardcoded default, got %d", len(config.ToolTrustLevels))
+		}
+
+		actualExecuteBashTrustLevel, exists := config.ToolTrustLevels["execute_bash"]
+		if !exists {
+			t.Error("ToolTrustLevels should contain hardcoded default for 'execute_bash' tool")
+		}
+
+		if actualExecuteBashTrustLevel != expectedExecuteBashTrustLevel {
+			t.Errorf("Expected execute_bash trust level to be %d (ask for permission), got %d", expectedExecuteBashTrustLevel, actualExecuteBashTrustLevel)
 		}
 	})
 
@@ -555,6 +565,30 @@ func TestDefaultConfig_Validation(t *testing.T) {
 		// Should be empty but not nil
 		if len(config.MCPServers) != 0 {
 			t.Error("MCPServers should be empty by default")
+		}
+	})
+}
+
+func TestGetToolTrustLevel_ExecuteBashDefault(t *testing.T) {
+	t.Run("execute_bash tool has hardcoded default trust level", func(t *testing.T) {
+		config := DefaultConfig()
+
+		trustLevel := config.GetToolTrustLevel("execute_bash")
+		expectedTrustLevel := 1 // Ask for permission
+
+		if trustLevel != expectedTrustLevel {
+			t.Errorf("Expected execute_bash tool trust level to be %d (ask for permission), got %d", expectedTrustLevel, trustLevel)
+		}
+	})
+
+	t.Run("unknown tool gets default trust level", func(t *testing.T) {
+		config := DefaultConfig()
+
+		trustLevel := config.GetToolTrustLevel("unknown_tool")
+		expectedTrustLevel := 1 // Ask for permission
+
+		if trustLevel != expectedTrustLevel {
+			t.Errorf("Expected unknown tool trust level to be %d (ask for permission), got %d", expectedTrustLevel, trustLevel)
 		}
 	})
 }

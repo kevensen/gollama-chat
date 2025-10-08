@@ -107,6 +107,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.width = int(float64(msg.Width) * 0.90)
 		m.height = int(float64(msg.Height) * 0.90)
 
+		// Calculate content height excluding tabs and footer for consistent layout
+		tabBarHeight := 1
+		footerHeight := 1
+		contentHeight := m.height - tabBarHeight - footerHeight
+		if contentHeight < 1 {
+			contentHeight = 1
+		}
+
 		// Update child models with new size
 		chatModel, chatCmd := m.chatModel.Update(tea.WindowSizeMsg{
 			Width:  m.width,
@@ -119,7 +127,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		configModel, configCmd := m.configModel.Update(tea.WindowSizeMsg{
 			Width:  m.width,
-			Height: m.height,
+			Height: contentHeight, // Pass content height instead of full height
 		})
 		m.configModel = configModel.(configTab.Model)
 		if configCmd != nil {
@@ -463,6 +471,12 @@ func (m Model) View() string {
 		m.chatModel = chatModel.(chat.Model)
 		content = m.chatModel.View()
 	case ConfigTab:
+		// Update config model with constrained height for proper layout
+		configModel, _ := m.configModel.Update(tea.WindowSizeMsg{
+			Width:  m.width,
+			Height: contentHeight, // Pass the actual content height available
+		})
+		m.configModel = configModel.(configTab.Model)
 		content = m.configModel.View()
 	case RAGTab:
 		content = m.ragModel.View()
@@ -585,13 +599,17 @@ func (m Model) renderFooter() string {
 		case ChatTab:
 			helpText += " • Enter: Send • ↑/↓: Scroll • Ctrl+S: System Prompt"
 		case ConfigTab:
-			helpText += " • Enter: Edit • Esc: Cancel"
+			helpText += " • Enter: Edit • Esc: Cancel • PgUp/PgDn: Scroll"
 		case RAGTab:
 			helpText += " • Space: Toggle • ↑/↓: Navigate • R: Refresh"
 		}
 	} else if m.width >= 50 {
 		// Medium detail
 		helpText = "Tab/Shift+Tab: Switch tabs • Ctrl+C: Quit"
+		switch m.activeTab {
+		case ConfigTab:
+			helpText += " • PgUp/PgDn: Scroll"
+		}
 	} else if m.width >= 25 {
 		// Basic help
 		helpText = "Tab: Switch • Ctrl+C: Quit"
