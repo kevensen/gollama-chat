@@ -93,6 +93,10 @@ func (m Model) Init() tea.Cmd {
 		tea.Tick(time.Second, func(t time.Time) tea.Msg {
 			return syncRAGCollectionsMsg{}
 		}),
+		// Additional sync after a longer delay to catch late-loading collections
+		tea.Tick(5*time.Second, func(t time.Time) tea.Msg {
+			return syncRAGCollectionsMsg{}
+		}),
 	)
 }
 
@@ -346,7 +350,23 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	default:
 		// Handle RAG collection synchronization
 		if _, isSyncRAGMsg := msg.(syncRAGCollectionsMsg); isSyncRAGMsg {
+			logger := logging.WithComponent("tui-core")
+			logger.Info("Processing syncRAGCollectionsMsg")
+
+			// First, try to sync existing collections
 			m.syncRAGCollections()
+
+			// If the RAG tab hasn't loaded collections yet (which happens if user never visited the tab),
+			// trigger the RAG tab to test connection and load collections
+			selectedCollections := m.ragModel.GetSelectedCollections()
+			if len(selectedCollections) == 0 {
+				logger.Info("RAG tab has no collections, triggering background load")
+				// Send a message to the RAG tab to trigger connection test and load collections
+				ragModel, ragCmd := m.ragModel.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'t'}})
+				m.ragModel = ragModel.(ragTab.Model)
+				return m, ragCmd
+			}
+
 			return m, nil
 		}
 
@@ -634,9 +654,19 @@ func (m *Model) syncRAGCollections() {
 	// Get the selected collections from the RAG tab
 	selectedCollectionNames := m.ragModel.GetSelectedCollections()
 
+	// Get the current collections from the RAG service for comparison
+	ragService := m.chatModel.GetRAGService()
+	var currentServiceCollections []string
+	if ragService != nil {
+		currentServiceCollections = ragService.GetSelectedCollections()
+	}
+
 	logger.Info("Syncing RAG collections",
 		"rag_tab_collections", selectedCollectionNames,
-		"count", len(selectedCollectionNames))
+		"rag_tab_count", len(selectedCollectionNames),
+		"rag_service_collections", currentServiceCollections,
+		"rag_service_count", len(currentServiceCollections),
+		"rag_service_nil", ragService == nil)
 
 	// If the RAG tab has no collections selected, don't override the RAG service
 	// (it might have auto-selected collections during initialization)
@@ -652,11 +682,12 @@ func (m *Model) syncRAGCollections() {
 	}
 
 	// Update the chat model's RAG service with the selected collections
-	ragService := m.chatModel.GetRAGService()
 	if ragService != nil {
 		ragService.UpdateSelectedCollections(selectedCollectionsMap)
 		logger.Info("Updated RAG service with collections from RAG tab",
 			"collections_map", selectedCollectionsMap)
+	} else {
+		logger.Warn("RAG service is nil, cannot update collections")
 	}
 }
 

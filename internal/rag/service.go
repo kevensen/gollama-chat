@@ -145,12 +145,21 @@ func (s *Service) Initialize(ctx context.Context) error {
 
 // UpdateSelectedCollections updates the list of selected collections
 func (s *Service) UpdateSelectedCollections(selectedCollections map[string]bool) {
+	logger := logging.WithComponent("rag")
 	s.selectedCollections = make([]string, 0)
 	for collection, selected := range selectedCollections {
 		if selected {
 			s.selectedCollections = append(s.selectedCollections, collection)
 		}
 	}
+	logger.Info("Updated RAG service selected collections",
+		"selected_collections", s.selectedCollections,
+		"count", len(s.selectedCollections))
+}
+
+// GetSelectedCollections returns the list of currently selected collections
+func (s *Service) GetSelectedCollections() []string {
+	return s.selectedCollections
 }
 
 // IsReady checks if the service is ready to perform RAG operations
