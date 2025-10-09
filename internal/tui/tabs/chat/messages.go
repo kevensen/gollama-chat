@@ -111,6 +111,26 @@ func (m Model) sendMessage(prompt string, conversationULID string) tea.Cmd {
 
 		// Add system prompt if configured
 		if m.sessionSystemPrompt != "" {
+			logger := logging.WithComponent("chat")
+
+			// Log whether AGENTS.md content is included in the system prompt
+			hasAgentsContent := strings.Contains(m.sessionSystemPrompt, "--- PROJECT CONTEXT (from AGENTS.md) ---")
+			if hasAgentsContent {
+				logger.Info("Sending system prompt with AGENTS.md content to model",
+					"model", m.config.ChatModel,
+					"system_prompt_length", len(m.sessionSystemPrompt),
+					"agents_file_path", func() string {
+						if m.agentsFile != nil {
+							return m.agentsFile.Path
+						}
+						return "unknown"
+					}())
+			} else {
+				logger.Debug("Sending system prompt without AGENTS.md content to model",
+					"model", m.config.ChatModel,
+					"system_prompt_length", len(m.sessionSystemPrompt))
+			}
+
 			messages = append(messages, api.Message{
 				Role:    "system",
 				Content: m.sessionSystemPrompt,

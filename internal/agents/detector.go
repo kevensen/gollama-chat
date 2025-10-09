@@ -88,11 +88,16 @@ func (d *Detector) DetectInDirectory(dir string) (*AgentsFile, error) {
 		if strings.EqualFold(name, "AGENTS.md") {
 			foundPath := filepath.Join(dir, name)
 			d.logger.Info("Found agents file", "path", foundPath, "actual_name", name)
-			return d.loadAgentsFile(foundPath, dir)
+			agentsFile, err := d.loadAgentsFile(foundPath, dir)
+			if err == nil && agentsFile != nil {
+				d.logger.Info("Completed AGENTS.md detection scan", "directory", dir, "files_checked", len(entries), "found", true, "agents_path", agentsFile.Path)
+			}
+			return agentsFile, err
 		}
 	}
 
 	d.logger.Debug("No AGENTS.md file found", "directory", dir)
+	d.logger.Debug("Completed AGENTS.md detection scan", "directory", dir, "files_checked", len(entries), "found", false)
 	return nil, nil
 }
 

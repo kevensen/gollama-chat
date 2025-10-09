@@ -211,7 +211,17 @@ func NewModelWithAgents(ctx context.Context, config *configuration.Config, agent
 	// Build system prompt with agents file content if available
 	systemPrompt := config.DefaultSystemPrompt
 	if agentsFile != nil {
+		logger := logging.WithComponent("chat")
+		logger.Info("Initializing chat model with AGENTS.md content",
+			"agents_file_path", agentsFile.Path,
+			"agents_content_length", len(agentsFile.Content),
+			"base_prompt_length", len(config.DefaultSystemPrompt))
 		systemPrompt += agentsFile.FormatAsSystemPromptAddition()
+		logger.Info("AGENTS.md content added to system prompt",
+			"final_prompt_length", len(systemPrompt))
+	} else {
+		logger := logging.WithComponent("chat")
+		logger.Debug("Initializing chat model without AGENTS.md content")
 	}
 
 	return Model{
@@ -1044,4 +1054,49 @@ func (m *Model) UpdateFromConfiguration(newConfig *configuration.Config) {
 
 	// Update the configuration reference
 	m.config = newConfig
+}
+
+// UpdateAgentsFile updates the AGENTS.md file for the chat model and refreshes the system prompt
+func (m *Model) UpdateAgentsFile(agentsFile *agents.AgentsFile) {
+	logger := logging.WithComponent("chat")
+
+	// Store old and new states for logging
+	oldFile := m.agentsFile
+	m.agentsFile = agentsFile
+
+	if oldFile == nil && agentsFile != nil {
+		logger.Info("AGENTS.md file added to chat model",
+			"path", agentsFile.Path,
+			"size_chars", len(agentsFile.Content))
+	} else if oldFile != nil && agentsFile == nil {
+		logger.Info("AGENTS.md file removed from chat model",
+			"old_path", oldFile.Path)
+	} else if oldFile != nil && agentsFile != nil {
+		logger.Info("AGENTS.md file updated in chat model",
+			"old_path", oldFile.Path,
+			"new_path", agentsFile.Path,
+			"old_size_chars", len(oldFile.Content),
+			"new_size_chars", len(agentsFile.Content))
+	} else {
+		logger.Debug("AGENTS.md file update called but no change (both nil)")
+	}
+
+	// Rebuild the session system prompt if it hasn't been manually modified
+	if !m.sessionSystemPromptManual {
+		basePrompt := m.config.DefaultSystemPrompt
+		if agentsFile != nil {
+			m.sessionSystemPrompt = basePrompt + agentsFile.FormatAsSystemPromptAddition()
+			logger.Info("Updated session system prompt with AGENTS.md content",
+				"base_prompt_length", len(basePrompt),
+				"agents_content_length", len(agentsFile.Content),
+				"total_prompt_length", len(m.sessionSystemPrompt))
+		} else {
+			m.sessionSystemPrompt = basePrompt
+			logger.Info("Updated session system prompt without AGENTS.md content",
+				"prompt_length", len(m.sessionSystemPrompt))
+		}
+		m.systemPromptNeedsUpdate = true
+	} else {
+		logger.Debug("Session system prompt manually modified, not updating with AGENTS.md changes")
+	}
 }

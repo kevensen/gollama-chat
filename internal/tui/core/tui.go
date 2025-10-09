@@ -387,8 +387,36 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		// Handle configuration updates
 		if configMsg, isConfigUpdate := msg.(ragTab.ConfigUpdatedMsg); isConfigUpdate {
+			logger := logging.WithComponent("tui-core")
+
 			// Update the main config
 			m.config = configMsg.Config
+
+			// Update the agents detector if the setting changed
+			if m.agentsDetector.IsEnabled() != configMsg.Config.AgentsFileEnabled {
+				logger.Info("AGENTS.md detection setting changed",
+					"old_enabled", m.agentsDetector.IsEnabled(),
+					"new_enabled", configMsg.Config.AgentsFileEnabled)
+				m.agentsDetector.SetEnabled(configMsg.Config.AgentsFileEnabled)
+
+				// Re-detect and update chat model if detection is now enabled
+				if configMsg.Config.AgentsFileEnabled {
+					agentsFile, err := m.agentsDetector.DetectInWorkingDirectory()
+					if err != nil {
+						logger.Error("Failed to re-detect AGENTS.md file after enabling", "error", err)
+					} else if agentsFile != nil {
+						logger.Info("Re-detected AGENTS.md file after enabling", "path", agentsFile.Path)
+						// Update chat model with the new agents file
+						m.chatModel.UpdateAgentsFile(agentsFile)
+					} else {
+						logger.Debug("No AGENTS.md file found after enabling detection")
+					}
+				} else {
+					logger.Info("AGENTS.md detection disabled, removing agents file from chat model")
+					// Clear the agents file from chat model
+					m.chatModel.UpdateAgentsFile(nil)
+				}
+			}
 
 			// Update the chat model with the new configuration (handles system prompt precedence)
 			m.chatModel.UpdateFromConfiguration(configMsg.Config)

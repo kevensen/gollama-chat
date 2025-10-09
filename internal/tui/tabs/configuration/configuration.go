@@ -467,6 +467,12 @@ func (m Model) handleNavigationKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				oldValue = m.editConfig.AgentsFileEnabled
 				m.editConfig.AgentsFileEnabled = !m.editConfig.AgentsFileEnabled
 				newValue = m.editConfig.AgentsFileEnabled
+				// Add specific logging for AGENTS.md configuration change
+				if newValue {
+					logger.Info("AGENTS.md detection enabled via configuration UI")
+				} else {
+					logger.Info("AGENTS.md detection disabled via configuration UI")
+				}
 			}
 
 			logger.Info("Boolean field toggled", "field", fieldName, "old_value", oldValue, "new_value", newValue)
