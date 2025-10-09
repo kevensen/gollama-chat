@@ -1,7 +1,6 @@
 package chat
 
 import (
-	"context"
 	"testing"
 
 	"github.com/kevensen/gollama-chat/internal/configuration"
@@ -17,7 +16,7 @@ func TestSystemPromptPriorityLogic(t *testing.T) {
 		ToolTrustLevels:     make(map[string]int),
 	}
 
-	ctx := context.Background()
+	ctx := t.Context()
 	model := NewModel(ctx, config)
 
 	// Test 1: Initial state should use default prompt and not be marked as manual

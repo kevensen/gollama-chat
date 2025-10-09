@@ -131,7 +131,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.height = msg.Height
 		// Update model panel size - allocate about 1/3 of width for the panel
 		panelWidth := m.width / 3
-		panelHeight := m.height - 10 // Leave room for other UI elements
+		// Use the same height calculation as the main settings box
+		panelHeight := m.height + 2
 		m.modelPanel = m.modelPanel.SetSize(panelWidth, panelHeight)
 
 	case connection.CheckMsg:
@@ -698,7 +699,7 @@ func (m Model) renderSystemPromptSideBySideView() string {
 	// Render configuration view with reduced width
 	configView := m.renderConfigurationViewWithWidth(configWidth)
 
-	// Render system prompt panel
+	// Render system prompt panel - use same height calculation as main settings box
 	systemPromptPanelView := m.renderSystemPromptPanel(panelWidth)
 
 	// Combine side by side
@@ -854,7 +855,7 @@ func (m Model) renderSystemPromptPanel(width int) string {
 		BorderForeground(lipgloss.Color(borderColor)).
 		Padding(1, 1).
 		Width(width - 2).
-		Height(m.height)
+		Height(m.height + 2)
 
 	return panelStyle.Render(strings.Join(content, "\n"))
 }

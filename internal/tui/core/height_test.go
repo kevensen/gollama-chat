@@ -1,7 +1,6 @@
 package core
 
 import (
-	"context"
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -30,7 +29,7 @@ func TestTabVisibilityWithSystemPrompt(t *testing.T) {
 		EnableFileLogging:   false,
 	}
 
-	ctx := context.Background()
+	ctx := t.Context()
 	model := NewModel(ctx, config)
 
 	// Test with a small terminal size that would previously cause issues
@@ -94,7 +93,7 @@ func TestConfigurationTabHeightConsistency(t *testing.T) {
 		EnableFileLogging:   false,
 	}
 
-	ctx := context.Background()
+	ctx := t.Context()
 	model := NewModel(ctx, config)
 
 	// Simulate a window resize

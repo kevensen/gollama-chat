@@ -1371,7 +1371,7 @@ func TestClearCommand(t *testing.T) {
 		SelectedCollections: make(map[string]bool),
 	}
 
-	ctx := context.Background()
+	ctx := t.Context()
 	model := NewModel(ctx, config)
 
 	// Add some test messages to the chat history

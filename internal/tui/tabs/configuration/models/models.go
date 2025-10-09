@@ -183,6 +183,45 @@ type ModelSelectedMsg struct {
 	Mode      SelectionMode
 }
 
+// isEmbeddingModel checks if a model is an embedding model based on name patterns
+// This function uses common naming conventions for embedding models
+func isEmbeddingModel(modelName, ollamaURL string) bool {
+	// Quick name-based check using common embedding model patterns
+	modelNameLower := strings.ToLower(modelName)
+
+	// Common embedding model patterns
+	embeddingPatterns := []string{
+		"embed",      // Most common: nomic-embed-text, text-embedding-ada
+		"embedding",  // embeddinggemma, sentence-embedding
+		"nomic",      // nomic-embed-text models
+		"bge",        // BGE (Beijing Academy of AI) embedding models
+		"e5",         // E5 embedding models from Microsoft
+		"sentence",   // sentence-transformers based models
+		"mpnet",      // MPNet based embedding models
+		"minilm",     // MiniLM based embedding models
+		"distilbert", // DistilBERT based embedding models (when used for embeddings)
+	}
+
+	for _, pattern := range embeddingPatterns {
+		if strings.Contains(modelNameLower, pattern) {
+			// Additional check: avoid false positives for chat models that might contain these terms
+			// For example, "embedded-llama" might be a chat model, not an embedding model
+			if strings.Contains(modelNameLower, "chat") ||
+				strings.Contains(modelNameLower, "instruct") ||
+				strings.Contains(modelNameLower, "tool") {
+				continue
+			}
+			return true
+		}
+	}
+
+	// Future enhancement: Could check model capabilities via /api/show endpoint
+	// This would be more accurate but slower due to additional API calls
+	// TODO: Consider adding capability-based checking with caching if needed
+
+	return false
+}
+
 // filterModels filters models based on the current mode and filter text
 func (m Model) filterModels(models []OllamaModel) []OllamaModel {
 	var filtered []OllamaModel
@@ -196,13 +235,13 @@ func (m Model) filterModels(models []OllamaModel) []OllamaModel {
 		// Apply mode-specific filtering
 		switch m.mode {
 		case EmbeddingModelSelection:
-			// Filter for embedding models (usually contain "embed" in the name)
-			if strings.Contains(strings.ToLower(model.Name), "embed") {
+			// Filter for embedding models based on model capabilities/patterns
+			if isEmbeddingModel(model.Name, "") {
 				filtered = append(filtered, model)
 			}
 		default:
 			// Chat models - include all non-embedding models
-			if !strings.Contains(strings.ToLower(model.Name), "embed") {
+			if !isEmbeddingModel(model.Name, "") {
 				filtered = append(filtered, model)
 			}
 		}
@@ -257,10 +296,7 @@ func (m Model) View() string {
 	} else {
 		// Show models
 		start := m.viewport
-		end := start + m.height - 2
-		if end > len(m.filteredModels) {
-			end = len(m.filteredModels)
-		}
+		end := min(start+m.height-2, len(m.filteredModels))
 
 		for i := start; i < end; i++ {
 			model := m.filteredModels[i]
