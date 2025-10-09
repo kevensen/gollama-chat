@@ -71,16 +71,8 @@ func (d *Detector) DetectInDirectory(dir string) (*AgentsFile, error) {
 
 	d.logger.Debug("Checking for AGENTS.md file", "directory", dir)
 
-	// Check for AGENTS.md file (case-insensitive)
-	agentsPath := filepath.Join(dir, "AGENTS.md")
-
-	// Try exact case first
-	if _, err := os.Stat(agentsPath); err == nil {
-		d.logger.Info("Found AGENTS.md file", "path", agentsPath)
-		return d.loadAgentsFile(agentsPath, dir)
-	}
-
-	// Try case-insensitive search
+	// Always do a directory scan to find the actual filename
+	// This ensures we get the correct case-preserved filename on all filesystems
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		d.logger.Debug("Failed to read directory", "directory", dir, "error", err)
@@ -95,7 +87,7 @@ func (d *Detector) DetectInDirectory(dir string) (*AgentsFile, error) {
 		name := entry.Name()
 		if strings.EqualFold(name, "AGENTS.md") {
 			foundPath := filepath.Join(dir, name)
-			d.logger.Info("Found agents file (case-insensitive)", "path", foundPath)
+			d.logger.Info("Found agents file", "path", foundPath, "actual_name", name)
 			return d.loadAgentsFile(foundPath, dir)
 		}
 	}
