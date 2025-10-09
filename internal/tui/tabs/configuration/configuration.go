@@ -79,6 +79,7 @@ func NewModel(config *configuration.Config) Model {
 		MCPServers:          make([]configuration.MCPServer, len(config.MCPServers)),
 		LogLevel:            config.LogLevel,
 		EnableFileLogging:   config.EnableFileLogging,
+		AgentsFileEnabled:   config.AgentsFileEnabled,
 	}
 
 	// Copy the selectedCollections map
@@ -214,6 +215,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				MCPServers:          make([]configuration.MCPServer, len(msg.Config.MCPServers)),
 				LogLevel:            msg.Config.LogLevel,
 				EnableFileLogging:   msg.Config.EnableFileLogging,
+				AgentsFileEnabled:   msg.Config.AgentsFileEnabled,
 			}
 
 			// Copy the maps and slice
@@ -1438,6 +1440,7 @@ func (m *Model) syncEditConfigWithMain() {
 		defaultSystemPrompt string
 		logLevel            string
 		enableFileLogging   bool
+		agentsFileEnabled   bool
 	}{
 		chatModel:           m.editConfig.ChatModel,
 		embeddingModel:      m.editConfig.EmbeddingModel,
@@ -1449,6 +1452,7 @@ func (m *Model) syncEditConfigWithMain() {
 		defaultSystemPrompt: m.editConfig.DefaultSystemPrompt,
 		logLevel:            m.editConfig.LogLevel,
 		enableFileLogging:   m.editConfig.EnableFileLogging,
+		agentsFileEnabled:   m.editConfig.AgentsFileEnabled,
 	}
 
 	// Start with the current main config to preserve all non-edited fields
@@ -1465,6 +1469,7 @@ func (m *Model) syncEditConfigWithMain() {
 	m.editConfig.DefaultSystemPrompt = editValues.defaultSystemPrompt
 	m.editConfig.LogLevel = editValues.logLevel
 	m.editConfig.EnableFileLogging = editValues.enableFileLogging
+	m.editConfig.AgentsFileEnabled = editValues.agentsFileEnabled
 }
 
 // saveConfiguration saves the configuration to disk
