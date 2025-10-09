@@ -276,7 +276,7 @@ func (m Model) View() string {
 		Foreground(lipgloss.Color("4")).
 		PaddingBottom(1)
 	header.WriteString(titleStyle.Render("RAG Collections"))
-	header.WriteString("\n\n")
+	header.WriteString("\n")
 
 	// Connection status
 	connectionStyle := lipgloss.NewStyle()
@@ -290,7 +290,7 @@ func (m Model) View() string {
 			header.WriteString(fmt.Sprintf(" - %s", m.error))
 		}
 	}
-	header.WriteString("\n\n")
+	header.WriteString("\n")
 
 	// Instructions
 	if m.connected && !m.loading {
@@ -302,7 +302,7 @@ func (m Model) View() string {
 			Foreground(lipgloss.Color("8"))
 		header.WriteString(instructionsStyle.Render("Press T to test connection, C to show config, U to refresh config, X to stop loading"))
 	}
-	header.WriteString("\n\n")
+	header.WriteString("\n")
 
 	// Main content area
 	var content string
@@ -335,7 +335,7 @@ func (m Model) View() string {
 	output.WriteString(header.String())
 	output.WriteString(content)
 	if footer.Len() > 0 {
-		output.WriteString("\n\n")
+		output.WriteString("\n")
 		output.WriteString(footer.String())
 	}
 
@@ -343,7 +343,7 @@ func (m Model) View() string {
 	// Calculate height like main TUI does for content area
 	tabBarHeight := 1
 	footerHeight := 1
-	contentHeight := m.height - tabBarHeight - footerHeight
+	contentHeight := m.height - tabBarHeight - footerHeight + 2 // Add small adjustment to fill remaining space
 	if contentHeight < 1 {
 		contentHeight = 1
 	}

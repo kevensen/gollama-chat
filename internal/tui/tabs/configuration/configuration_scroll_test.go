@@ -6,12 +6,12 @@ import (
 	"github.com/kevensen/gollama-chat/internal/configuration"
 )
 
-func TestSystemPromptScrolling(t *testing.T) {
+func TestSystemPromptPanelToggle(t *testing.T) {
 	// Create a test configuration
 	config := &configuration.Config{
 		ChatModel:           "test-model",
 		EmbeddingModel:      "test-embedding",
-		DefaultSystemPrompt: "This is a very long system prompt for testing scrolling functionality.",
+		DefaultSystemPrompt: "This is a test system prompt for testing panel functionality.",
 		RAGEnabled:          true,
 		OllamaURL:           "http://localhost:11434",
 		ChromaDBURL:         "http://localhost:8000",
@@ -26,30 +26,46 @@ func TestSystemPromptScrolling(t *testing.T) {
 	model.width = 80
 	model.height = 25
 
-	// Test initial state
-	if model.systemPromptScrollPos != 0 {
-		t.Errorf("Expected initial system prompt scroll position to be 0, got %d", model.systemPromptScrollPos)
+	// Test initial state - system prompt panel should be closed
+	if model.showSystemPromptPanel {
+		t.Error("Expected system prompt panel to be closed initially")
 	}
 
-	// Test system prompt scrolling when active
+	if model.systemPromptEditMode {
+		t.Error("Expected system prompt edit mode to be false initially")
+	}
+
+	// Test opening system prompt panel (starts in view mode)
 	model.activeField = DefaultSystemPromptField
+	model.showSystemPromptPanel = true
+	model.systemPromptEditInput = model.editConfig.DefaultSystemPrompt
+	model.systemPromptEditCursor = 0
+	model.systemPromptEditMode = false
 
-	// Test scroll down within system prompt
-	originalPos := model.systemPromptScrollPos
-	model.systemPromptScrollPos += 5 // Simulate page down
-
-	if model.systemPromptScrollPos <= originalPos {
-		t.Error("Expected system prompt scroll position to increase after scroll down")
+	if !model.showSystemPromptPanel {
+		t.Error("Expected system prompt panel to be open")
 	}
 
-	// Test scroll position bounds
-	model.systemPromptScrollPos = -5 // Negative value
-	if model.systemPromptScrollPos < 0 {
-		model.systemPromptScrollPos = 0
+	if model.systemPromptEditMode {
+		t.Error("Expected system prompt panel to start in view mode")
 	}
 
-	if model.systemPromptScrollPos != 0 {
-		t.Error("Expected system prompt scroll position to be bounded to 0")
+	// Test entering edit mode
+	model.systemPromptEditMode = true
+	model.systemPromptEditCursor = len(model.systemPromptEditInput)
+
+	if !model.systemPromptEditMode {
+		t.Error("Expected system prompt panel to be in edit mode")
+	}
+
+	// Test closing system prompt panel
+	model.showSystemPromptPanel = false
+	model.systemPromptEditInput = ""
+	model.systemPromptEditCursor = 0
+	model.systemPromptEditMode = false
+
+	if model.showSystemPromptPanel {
+		t.Error("Expected system prompt panel to be closed")
 	}
 }
 
@@ -81,7 +97,7 @@ func TestFieldNavigation(t *testing.T) {
 func TestAnchoredLayout(t *testing.T) {
 	// Create a test configuration
 	config := configuration.DefaultConfig()
-	config.DefaultSystemPrompt = "Very long system prompt that should expand in place"
+	config.DefaultSystemPrompt = "System prompt that no longer expands in place"
 
 	// Create a model
 	model := NewModel(config)
@@ -95,11 +111,20 @@ func TestAnchoredLayout(t *testing.T) {
 		t.Error("Expected view to render content, got empty string")
 	}
 
-	// Test with system prompt active
+	// Test with system prompt active (no longer expands in place)
 	model.activeField = DefaultSystemPromptField
-	expandedView := model.View()
+	compactView := model.View()
 
-	if expandedView == "" {
-		t.Error("Expected expanded view to render content, got empty string")
+	if compactView == "" {
+		t.Error("Expected compact view to render content, got empty string")
+	}
+
+	// Test with system prompt panel open
+	model.showSystemPromptPanel = true
+	model.systemPromptEditInput = config.DefaultSystemPrompt
+	panelView := model.View()
+
+	if panelView == "" {
+		t.Error("Expected panel view to render content, got empty string")
 	}
 }

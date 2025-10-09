@@ -442,7 +442,7 @@ func (m Model) View() string {
 		Bold(true).
 		Foreground(lipgloss.Color("205")).
 		Render("MCP Servers"))
-	s.WriteString("\n\n")
+	s.WriteString("\n")
 
 	// Instructions
 	if m.editingIndex >= 0 {
@@ -454,7 +454,7 @@ func (m Model) View() string {
 			Foreground(lipgloss.Color("241")).
 			Render("Enter: toggle, e: edit, d: delete, a: add, r: refresh, c: clear error"))
 	}
-	s.WriteString("\n\n")
+	s.WriteString("\n")
 
 	// Error display
 	if m.lastError != nil {
@@ -462,7 +462,7 @@ func (m Model) View() string {
 			Foreground(lipgloss.Color("196")).
 			Bold(true).
 			Render(fmt.Sprintf("Error: %s", m.lastError.Error())))
-		s.WriteString("\n\n")
+		s.WriteString("\n")
 	}
 
 	// Server list
@@ -480,7 +480,7 @@ func (m Model) View() string {
 	// Calculate heights for layout
 	tabBarHeight := 1
 	footerHeight := 1
-	totalContentHeight := m.height - tabBarHeight - footerHeight
+	totalContentHeight := m.height - tabBarHeight - footerHeight + 2 // Add small adjustment to fill remaining space
 
 	var serverListContent string
 	var addFormContent string

@@ -37,21 +37,25 @@ const (
 
 // Model represents the configuration tab model
 type Model struct {
-	config                *configuration.Config
-	editConfig            *configuration.Config // Copy for editing
-	activeField           Field
-	editing               bool
-	input                 string
-	cursor                int
-	width                 int
-	height                int
-	message               string
-	messageStyle          lipgloss.Style
-	ollamaStatus          connection.Status
-	chromaDBStatus        connection.Status
-	modelPanel            models.Model
-	showModelPanel        bool
-	systemPromptScrollPos int // Scroll position for system prompt when expanded
+	config                 *configuration.Config
+	editConfig             *configuration.Config // Copy for editing
+	activeField            Field
+	editing                bool
+	input                  string
+	cursor                 int
+	width                  int
+	height                 int
+	message                string
+	messageStyle           lipgloss.Style
+	ollamaStatus           connection.Status
+	chromaDBStatus         connection.Status
+	modelPanel             models.Model
+	showModelPanel         bool
+	showSystemPromptPanel  bool   // Whether the system prompt editing panel is visible
+	systemPromptEditInput  string // Input text for system prompt editing
+	systemPromptEditCursor int    // Cursor position in system prompt editing
+	systemPromptEditMode   bool   // Whether the system prompt panel is in edit mode
+	systemPromptScrollY    int    // Vertical scroll position in the system prompt panel
 }
 
 // NewModel creates a new configuration model
@@ -86,14 +90,19 @@ func NewModel(config *configuration.Config) Model {
 	copy(editConfig.MCPServers, config.MCPServers)
 
 	return Model{
-		config:         config,
-		editConfig:     editConfig,
-		activeField:    OllamaURLField,
-		editing:        false,
-		ollamaStatus:   connection.StatusUnknown,
-		chromaDBStatus: connection.StatusUnknown,
-		modelPanel:     models.NewModel(),
-		showModelPanel: false,
+		config:                 config,
+		editConfig:             editConfig,
+		activeField:            OllamaURLField,
+		editing:                false,
+		ollamaStatus:           connection.StatusUnknown,
+		chromaDBStatus:         connection.StatusUnknown,
+		modelPanel:             models.NewModel(),
+		showModelPanel:         false,
+		showSystemPromptPanel:  false,
+		systemPromptEditInput:  "",
+		systemPromptEditCursor: 0,
+		systemPromptEditMode:   false,
+		systemPromptScrollY:    0,
 		messageStyle: lipgloss.NewStyle().
 			Foreground(lipgloss.Color("10")).
 			Bold(true),
@@ -246,40 +255,159 @@ func (m Model) handleNavigationKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 	}
 
+	// If system prompt panel is visible, handle it
+	if m.showSystemPromptPanel {
+		switch msg.String() {
+		case "esc":
+			// Close system prompt panel
+			m.showSystemPromptPanel = false
+			m.systemPromptEditInput = ""
+			m.systemPromptEditCursor = 0
+			m.systemPromptEditMode = false
+			m.systemPromptScrollY = 0
+			return m, nil
+		case "ctrl+e":
+			// Enable edit mode
+			if !m.systemPromptEditMode {
+				m.systemPromptEditMode = true
+				m.systemPromptEditInput = m.editConfig.DefaultSystemPrompt
+				m.systemPromptEditCursor = len(m.systemPromptEditInput)
+				m.systemPromptScrollY = 0 // Reset scroll when entering edit mode
+			}
+			return m, nil
+		case "ctrl+s":
+			// Save changes (only if in edit mode)
+			if m.systemPromptEditMode {
+				m.editConfig.DefaultSystemPrompt = m.systemPromptEditInput
+				m.systemPromptEditMode = false
+
+				// Auto-save the configuration after system prompt update
+				if updateCmd, saveErr := m.autoSaveConfiguration(); saveErr != nil {
+					m.message = fmt.Sprintf("System prompt updated but save failed: %s", saveErr.Error())
+					m.messageStyle = m.messageStyle.Foreground(lipgloss.Color("11")) // Yellow for warning
+					return m, nil
+				} else {
+					m.message = "System prompt updated and saved"
+					m.messageStyle = m.messageStyle.Foreground(lipgloss.Color("10"))
+					return m, updateCmd
+				}
+			}
+			return m, nil
+		}
+
+		// Only allow text editing if in edit mode
+		if m.systemPromptEditMode {
+			switch msg.String() {
+			case "backspace":
+				if m.systemPromptEditCursor > 0 {
+					m.systemPromptEditInput = m.systemPromptEditInput[:m.systemPromptEditCursor-1] + m.systemPromptEditInput[m.systemPromptEditCursor:]
+					m.systemPromptEditCursor--
+				}
+				return m, nil
+			case "delete":
+				if m.systemPromptEditCursor < len(m.systemPromptEditInput) {
+					m.systemPromptEditInput = m.systemPromptEditInput[:m.systemPromptEditCursor] + m.systemPromptEditInput[m.systemPromptEditCursor+1:]
+				}
+				return m, nil
+			case "left":
+				if m.systemPromptEditCursor > 0 {
+					m.systemPromptEditCursor--
+				}
+				return m, nil
+			case "right":
+				if m.systemPromptEditCursor < len(m.systemPromptEditInput) {
+					m.systemPromptEditCursor++
+				}
+				return m, nil
+			case "up":
+				// Move cursor up one line
+				m.systemPromptEditCursor = m.moveCursorUp(m.systemPromptEditInput, m.systemPromptEditCursor)
+				m.ensureCursorVisible()
+				return m, nil
+			case "down":
+				// Move cursor down one line
+				m.systemPromptEditCursor = m.moveCursorDown(m.systemPromptEditInput, m.systemPromptEditCursor)
+				m.ensureCursorVisible()
+				return m, nil
+			case "home":
+				// Move to beginning of current line
+				m.systemPromptEditCursor = m.moveCursorToLineStart(m.systemPromptEditInput, m.systemPromptEditCursor)
+				return m, nil
+			case "end":
+				// Move to end of current line
+				m.systemPromptEditCursor = m.moveCursorToLineEnd(m.systemPromptEditInput, m.systemPromptEditCursor)
+				return m, nil
+			case "ctrl+home":
+				// Move to beginning of text
+				m.systemPromptEditCursor = 0
+				return m, nil
+			case "ctrl+end":
+				// Move to end of text
+				m.systemPromptEditCursor = len(m.systemPromptEditInput)
+				return m, nil
+			case "enter":
+				// Insert newline
+				m.systemPromptEditInput = m.systemPromptEditInput[:m.systemPromptEditCursor] + "\n" + m.systemPromptEditInput[m.systemPromptEditCursor:]
+				m.systemPromptEditCursor++
+				return m, nil
+			case "tab":
+				// Insert tab or spaces
+				tabString := "    " // 4 spaces
+				m.systemPromptEditInput = m.systemPromptEditInput[:m.systemPromptEditCursor] + tabString + m.systemPromptEditInput[m.systemPromptEditCursor:]
+				m.systemPromptEditCursor += len(tabString)
+				return m, nil
+			default:
+				// Handle regular character input
+				if len(msg.String()) == 1 {
+					char := msg.String()
+					// Allow all printable characters including space
+					if char >= " " && char <= "~" || char >= "\u00A0" { // Printable ASCII + extended
+						m.systemPromptEditInput = m.systemPromptEditInput[:m.systemPromptEditCursor] + char + m.systemPromptEditInput[m.systemPromptEditCursor:]
+						m.systemPromptEditCursor++
+					}
+				}
+				return m, nil
+			}
+		}
+
+		// Allow scrolling in both edit and view modes
+		switch msg.String() {
+		case "page_up", "ctrl+u":
+			// Scroll up in the panel
+			if m.systemPromptScrollY > 0 {
+				m.systemPromptScrollY -= 5
+				if m.systemPromptScrollY < 0 {
+					m.systemPromptScrollY = 0
+				}
+			}
+			return m, nil
+		case "page_down", "ctrl+d":
+			// Scroll down in the panel
+			m.systemPromptScrollY += 5
+			// Max scroll will be validated in render function
+			return m, nil
+		}
+
+		// If not in edit mode, ignore text input keys
+		return m, nil
+	}
+
 	switch msg.String() {
 	case "up", "k":
 		if m.activeField > 0 {
-			// Reset system prompt scroll when leaving the field
-			if m.activeField == DefaultSystemPromptField {
-				m.systemPromptScrollPos = 0
-			}
 			m.activeField--
 		}
 
 	case "down", "j":
 		if m.activeField < EnableFileLoggingField { // Updated to use actual last field
-			// Reset system prompt scroll when leaving the field
-			if m.activeField == DefaultSystemPromptField {
-				m.systemPromptScrollPos = 0
-			}
 			m.activeField++
 		}
 
 	case "ctrl+u", "page_up":
-		// Only allow scrolling within the system prompt when it's active
-		if m.activeField == DefaultSystemPromptField {
-			m.systemPromptScrollPos -= 5 // Scroll up 5 lines
-			if m.systemPromptScrollPos < 0 {
-				m.systemPromptScrollPos = 0
-			}
-		}
+		// Page up functionality removed for system prompt since it no longer expands
 
 	case "ctrl+d", "page_down":
-		// Only allow scrolling within the system prompt when it's active
-		if m.activeField == DefaultSystemPromptField {
-			m.systemPromptScrollPos += 5 // Scroll down 5 lines
-			// We'll validate max scroll in the render function
-		}
+		// Page down functionality removed for system prompt since it no longer expands
 
 	case "home":
 		// Go to first field
@@ -309,6 +437,13 @@ func (m Model) handleNavigationKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.message = "Cannot fetch models: Ollama server not connected"
 				m.messageStyle = m.messageStyle.Foreground(lipgloss.Color("9"))
 			}
+		} else if m.activeField == DefaultSystemPromptField {
+			// Open system prompt viewing panel (read-only initially)
+			m.showSystemPromptPanel = true
+			m.systemPromptEditInput = m.editConfig.DefaultSystemPrompt
+			m.systemPromptEditCursor = 0
+			m.systemPromptEditMode = false
+			m.systemPromptScrollY = 0
 		} else if m.activeField == RAGEnabledField || m.activeField == EnableFileLoggingField {
 			// Toggle boolean fields directly
 			logger := logging.WithComponent("configuration_tab")
@@ -530,6 +665,11 @@ func (m Model) View() string {
 		return m.renderSideBySideView()
 	}
 
+	// If system prompt panel is visible, show side-by-side layout
+	if m.showSystemPromptPanel {
+		return m.renderSystemPromptSideBySideView()
+	}
+
 	// Regular single-panel view
 	return m.renderConfigurationView()
 }
@@ -547,6 +687,286 @@ func (m Model) renderSideBySideView() string {
 
 	// Combine side by side
 	return lipgloss.JoinHorizontal(lipgloss.Top, configView, modelPanelView)
+}
+
+// renderSystemPromptSideBySideView renders configuration and system prompt panel side by side
+func (m Model) renderSystemPromptSideBySideView() string {
+	// Allocate 2/3 width to config, 1/3 to system prompt panel
+	configWidth := (m.width * 2) / 3
+	panelWidth := m.width / 3
+
+	// Render configuration view with reduced width
+	configView := m.renderConfigurationViewWithWidth(configWidth)
+
+	// Render system prompt panel
+	systemPromptPanelView := m.renderSystemPromptPanel(panelWidth)
+
+	// Combine side by side
+	return lipgloss.JoinHorizontal(lipgloss.Top, configView, systemPromptPanelView)
+}
+
+// renderSystemPromptPanel renders the system prompt viewing/editing panel
+func (m Model) renderSystemPromptPanel(width int) string {
+	var content []string
+
+	// Title
+	titleStyle := lipgloss.NewStyle().
+		Foreground(lipgloss.Color("12")).
+		Bold(true).
+		Align(lipgloss.Center)
+
+	if m.systemPromptEditMode {
+		content = append(content, titleStyle.Render("Edit System Prompt"))
+	} else {
+		content = append(content, titleStyle.Render("View System Prompt"))
+	}
+	content = append(content, "")
+
+	// Text area content
+	textAreaHeight := m.height - 12 // Leave room for title, help, border, etc.
+	if textAreaHeight < 5 {
+		textAreaHeight = 5
+	}
+
+	// Wrap the text to fit the available width
+	textWidth := width - 6 // Account for padding and borders
+	if textWidth < 20 {
+		textWidth = 20
+	}
+
+	// Use the original text (with real newlines and tabs functioning)
+	var displayText string
+	if m.systemPromptEditMode {
+		displayText = m.systemPromptEditInput
+	} else {
+		displayText = m.editConfig.DefaultSystemPrompt
+	}
+
+	// For display purposes, we'll render visible indicators but work with original text
+	displayTextWithIndicators := m.renderVisibleChars(displayText)
+	lines := m.wrapText(displayTextWithIndicators, textWidth)
+
+	// Apply scrolling - limit scroll to prevent scrolling past content
+	maxScroll := len(lines) - textAreaHeight
+	if maxScroll < 0 {
+		maxScroll = 0
+	}
+	if m.systemPromptScrollY > maxScroll {
+		m.systemPromptScrollY = maxScroll
+	}
+
+	// Get the visible lines based on scroll position
+	startLine := m.systemPromptScrollY
+	endLine := startLine + textAreaHeight
+	if endLine > len(lines) {
+		endLine = len(lines)
+	}
+
+	var visibleLines []string
+	if startLine < len(lines) {
+		visibleLines = lines[startLine:endLine]
+	}
+
+	// Add cursor to the text (only if in edit mode and cursor is visible)
+	displayLines := make([]string, len(visibleLines))
+	copy(displayLines, visibleLines)
+
+	if m.systemPromptEditMode {
+		// Convert cursor position to display position
+		displayCursor := m.convertCursorToDisplayPosition(m.systemPromptEditInput, m.systemPromptEditCursor)
+
+		// Find which visual line the cursor should be on after wrapping
+		charCount := 0
+
+		for i, line := range lines {
+			lineLength := len(line)
+			if charCount+lineLength >= displayCursor {
+				// Check if this line is visible in the current viewport
+				visibleLineIndex := i - m.systemPromptScrollY
+				if visibleLineIndex >= 0 && visibleLineIndex < len(displayLines) {
+					localCursor := displayCursor - charCount
+
+					// Ensure cursor position is valid
+					if localCursor > len(visibleLines[visibleLineIndex]) {
+						localCursor = len(visibleLines[visibleLineIndex])
+					}
+
+					// Add cursor to the display
+					if localCursor == len(visibleLines[visibleLineIndex]) {
+						displayLines[visibleLineIndex] = visibleLines[visibleLineIndex] + "█"
+					} else if localCursor >= 0 {
+						line := visibleLines[visibleLineIndex]
+						displayLines[visibleLineIndex] = line[:localCursor] + "█" + line[localCursor+1:]
+					}
+				}
+				break
+			}
+
+			// Account for the line content and newlines
+			charCount += lineLength
+			if i < len(lines)-1 && charCount < len(displayTextWithIndicators) && displayTextWithIndicators[charCount] == '\n' {
+				charCount++ // Account for the newline character
+			}
+		}
+	} // Pad with empty lines if needed to fill the text area
+	for len(displayLines) < textAreaHeight {
+		displayLines = append(displayLines, "")
+	}
+
+	// Add the text area content
+	content = append(content, displayLines...)
+
+	// Add scroll indicator if there's more content
+	if len(lines) > textAreaHeight {
+		content = append(content, "")
+		scrollInfo := fmt.Sprintf("Line %d-%d of %d",
+			m.systemPromptScrollY+1,
+			min(m.systemPromptScrollY+textAreaHeight, len(lines)),
+			len(lines))
+		scrollStyle := lipgloss.NewStyle().
+			Foreground(lipgloss.Color("240")).
+			Align(lipgloss.Right)
+		content = append(content, scrollStyle.Render(scrollInfo))
+	}
+
+	// Help text
+	content = append(content, "")
+	helpStyle := lipgloss.NewStyle().
+		Foreground(lipgloss.Color("240")).
+		Italic(true)
+
+	if m.systemPromptEditMode {
+		content = append(content, helpStyle.Render("Arrow Keys: Navigate • Enter: New Line • Tab: Indent"))
+		content = append(content, helpStyle.Render("PgUp/PgDn: Scroll • Ctrl+S: Save & Exit Edit Mode • Esc: Close Panel"))
+	} else {
+		content = append(content, helpStyle.Render("PgUp/PgDn: Scroll • Ctrl+E: Enter Edit Mode"))
+		content = append(content, helpStyle.Render("Esc: Close Panel"))
+	}
+
+	// Apply border and styling - different border color for edit mode
+	borderColor := "62"
+	if m.systemPromptEditMode {
+		borderColor = "10" // Green border when editing
+	}
+
+	panelStyle := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(lipgloss.Color(borderColor)).
+		Padding(1, 1).
+		Width(width - 2).
+		Height(m.height)
+
+	return panelStyle.Render(strings.Join(content, "\n"))
+}
+
+// moveCursorUp moves the cursor up one line in the text
+func (m Model) moveCursorUp(text string, cursor int) int {
+	lines := strings.Split(text, "\n")
+
+	// Find current line and column
+	currentPos := 0
+	currentLine := 0
+	currentCol := 0
+
+	for i, line := range lines {
+		if currentPos+len(line) >= cursor {
+			currentLine = i
+			currentCol = cursor - currentPos
+			break
+		}
+		currentPos += len(line) + 1 // +1 for newline
+	}
+
+	// If already on first line, move to beginning
+	if currentLine == 0 {
+		return 0
+	}
+
+	// Move to previous line, trying to maintain column position
+	prevLine := lines[currentLine-1]
+	if currentCol > len(prevLine) {
+		currentCol = len(prevLine)
+	}
+
+	// Calculate new cursor position
+	newPos := 0
+	for i := 0; i < currentLine-1; i++ {
+		newPos += len(lines[i]) + 1
+	}
+	newPos += currentCol
+
+	return newPos
+}
+
+// moveCursorDown moves the cursor down one line in the text
+func (m Model) moveCursorDown(text string, cursor int) int {
+	lines := strings.Split(text, "\n")
+
+	// Find current line and column
+	currentPos := 0
+	currentLine := 0
+	currentCol := 0
+
+	for i, line := range lines {
+		if currentPos+len(line) >= cursor {
+			currentLine = i
+			currentCol = cursor - currentPos
+			break
+		}
+		currentPos += len(line) + 1 // +1 for newline
+	}
+
+	// If already on last line, move to end
+	if currentLine >= len(lines)-1 {
+		return len(text)
+	}
+
+	// Move to next line, trying to maintain column position
+	nextLine := lines[currentLine+1]
+	if currentCol > len(nextLine) {
+		currentCol = len(nextLine)
+	}
+
+	// Calculate new cursor position
+	newPos := 0
+	for i := 0; i <= currentLine; i++ {
+		newPos += len(lines[i]) + 1
+	}
+	newPos += currentCol
+
+	return newPos
+}
+
+// moveCursorToLineStart moves the cursor to the beginning of the current line
+func (m Model) moveCursorToLineStart(text string, cursor int) int {
+	lines := strings.Split(text, "\n")
+
+	// Find current line
+	currentPos := 0
+	for _, line := range lines {
+		if currentPos+len(line) >= cursor {
+			return currentPos
+		}
+		currentPos += len(line) + 1 // +1 for newline
+	}
+
+	return cursor
+}
+
+// moveCursorToLineEnd moves the cursor to the end of the current line
+func (m Model) moveCursorToLineEnd(text string, cursor int) int {
+	lines := strings.Split(text, "\n")
+
+	// Find current line
+	currentPos := 0
+	for _, line := range lines {
+		if currentPos+len(line) >= cursor {
+			return currentPos + len(line)
+		}
+		currentPos += len(line) + 1 // +1 for newline
+	}
+
+	return cursor
 }
 
 // renderConfigurationView renders the full-width configuration view
@@ -585,8 +1005,8 @@ func (m Model) renderConfigurationViewWithWidth(width int) string {
 		content = append(content, "")
 	}
 
-	// System Prompt field (special handling - expands in place)
-	content = append(content, m.renderField(DefaultSystemPromptField, "Default System Prompt", m.truncateSystemPrompt(), "System prompt sent with each message"))
+	// System Prompt field (no longer expands in place)
+	content = append(content, m.renderField(DefaultSystemPromptField, "Default System Prompt", m.truncateSystemPrompt(), "System prompt sent with each message (Enter: View/Edit in panel)"))
 	content = append(content, "")
 
 	// Remaining fields (pushed down by system prompt expansion)
@@ -611,8 +1031,7 @@ func (m Model) renderConfigurationViewWithWidth(width int) string {
 		content = append(content, "")
 	}
 
-	// Help text
-	content = append(content, "")
+	// Help text (no extra empty line since we already have one from the last field)
 	helpStyle := lipgloss.NewStyle().
 		Foreground(lipgloss.Color("240")).
 		Width(width - 2)
@@ -621,13 +1040,16 @@ func (m Model) renderConfigurationViewWithWidth(width int) string {
 		content = append(content, helpStyle.Render("Enter: Save • Esc: Cancel"))
 	}
 
-	// Add system prompt specific help when active
-	if m.activeField == DefaultSystemPromptField && !m.editing {
-		content = append(content, helpStyle.Render("PgUp/PgDn: Scroll system prompt content"))
-	}
-
 	if m.showModelPanel {
 		content = append(content, helpStyle.Render("Model Selection: ↑/↓: Navigate • Enter: Select • Esc: Cancel"))
+	}
+
+	if m.showSystemPromptPanel {
+		if m.systemPromptEditMode {
+			content = append(content, helpStyle.Render("System Prompt Editor: Ctrl+S: Save • Esc: Close"))
+		} else {
+			content = append(content, helpStyle.Render("System Prompt Viewer: Ctrl+E: Edit • Esc: Close"))
+		}
 	}
 	// Message
 	if m.message != "" {
@@ -635,55 +1057,31 @@ func (m Model) renderConfigurationViewWithWidth(width int) string {
 		content = append(content, m.messageStyle.Render(m.message))
 	}
 
-	// Container - use the height as passed from the main TUI
-	// No global scrolling - content is fixed layout with system prompt expanding in place
-	contentHeight := m.height
+	// The height we receive is already the content height (tab bar and footer already subtracted by main TUI)
+	// Add a small adjustment to fill remaining space completely
+	contentHeight := m.height + 2
 	if contentHeight < 1 {
 		contentHeight = 1
 	}
 
-	// Join content and ensure it fits within the available height
+	// Join all content without pre-trimming - let lipgloss handle the height constraint
 	fullContent := strings.Join(content, "\n")
-
-	// Split content into lines and trim to fit the container
-	contentLines := strings.Split(fullContent, "\n")
-	containerPadding := 4 // 2 for padding + 2 for border
-	maxContentLines := contentHeight - containerPadding
-	if maxContentLines < 1 {
-		maxContentLines = 1
-	}
-
-	// Trim content to fit within container bounds (but preserve anchored content)
-	if len(contentLines) > maxContentLines {
-		contentLines = contentLines[:maxContentLines]
-		// Add indicator that content is truncated if there's room
-		if maxContentLines > 1 {
-			contentLines[maxContentLines-1] = "... (more fields below)"
-		}
-	}
-
-	trimmedContent := strings.Join(contentLines, "\n")
 
 	containerStyle := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(lipgloss.Color("#8A7FD8")).
 		Padding(1, 2).
-		Width(width - 2)
-		// Don't set a fixed height - let the container size itself based on content
+		Width(width - 2).
+		Height(contentHeight) // Set explicit height to fill remaining space
 
-	return containerStyle.Render(trimmedContent)
+	return containerStyle.Render(fullContent)
 }
 
-// truncateSystemPrompt returns a truncated version of the system prompt unless it's the active field
+// truncateSystemPrompt returns a truncated version of the system prompt
 func (m Model) truncateSystemPrompt() string {
 	systemPrompt := m.editConfig.DefaultSystemPrompt
 
-	// If this field is active or being edited, show the full prompt
-	if m.activeField == DefaultSystemPromptField {
-		return systemPrompt
-	}
-
-	// Truncate to a reasonable length for display
+	// Always truncate to a reasonable length for display
 	maxLength := 100
 	if len(systemPrompt) <= maxLength {
 		return systemPrompt
@@ -714,11 +1112,6 @@ func (m Model) renderField(field Field, label, value, help string) string {
 		valueStyle = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("15")).
 			Background(lipgloss.Color("62"))
-	}
-
-	// Special handling for system prompt field when active
-	if field == DefaultSystemPromptField && isActive {
-		return m.renderExpandedSystemPrompt(labelStyle, valueStyle, isEditing)
 	}
 
 	// Display value with cursor if editing
@@ -769,105 +1162,6 @@ func (m Model) renderField(field Field, label, value, help string) string {
 	}
 
 	return fieldLine
-}
-
-// renderExpandedSystemPrompt renders the system prompt in an expanded view that scrolls downward
-func (m Model) renderExpandedSystemPrompt(labelStyle, valueStyle lipgloss.Style, isEditing bool) string {
-	// Calculate available space for the expanded system prompt
-	// The height we receive already excludes tabs and footer space from the main TUI
-	// Reserve space for: title (2 lines), other anchored fields (4 lines), help text (4 lines), and some buffer
-	reservedSpace := 10
-	availableContentHeight := m.height - 4 // Account for container padding/border
-	maxExpandedHeight := availableContentHeight - reservedSpace
-
-	// Ensure we have at least a reasonable minimum but don't go too large
-	if maxExpandedHeight < 2 {
-		maxExpandedHeight = 2 // Minimum height - must show at least something
-	} else if maxExpandedHeight > 10 {
-		maxExpandedHeight = 10 // More conservative cap to ensure other content remains visible
-	}
-
-	// Get the system prompt content
-	systemPrompt := m.editConfig.DefaultSystemPrompt
-	if isEditing {
-		systemPrompt = m.input
-	}
-
-	// Wrap the text to fit the available width
-	textWidth := m.width - 8 // Account for padding and borders
-	if textWidth < 20 {
-		textWidth = 20
-	}
-
-	lines := m.wrapText(systemPrompt, textWidth)
-
-	// Apply scroll offset to the lines
-	visibleLines := lines
-	if m.systemPromptScrollPos > 0 && m.systemPromptScrollPos < len(lines) {
-		visibleLines = lines[m.systemPromptScrollPos:]
-	}
-
-	// Limit to max height
-	if len(visibleLines) > maxExpandedHeight {
-		visibleLines = visibleLines[:maxExpandedHeight]
-	}
-
-	// Add cursor if editing
-	if isEditing && len(visibleLines) > 0 {
-		// Find which line the cursor should be on
-		cursorPos := 0
-		for i, line := range lines {
-			if cursorPos+len(line) >= m.cursor {
-				// Cursor is on this line
-				if i >= m.systemPromptScrollPos && i < m.systemPromptScrollPos+len(visibleLines) {
-					lineIndex := i - m.systemPromptScrollPos
-					localCursor := m.cursor - cursorPos
-					if localCursor <= len(line) {
-						if localCursor == len(line) {
-							visibleLines[lineIndex] = line + "█"
-						} else {
-							visibleLines[lineIndex] = line[:localCursor] + "█" + line[localCursor+1:]
-						}
-					}
-				}
-				break
-			}
-			cursorPos += len(line) + 1 // +1 for newline
-		}
-	}
-
-	// Build the display
-	header := labelStyle.Render("Default System Prompt") + ":"
-
-	// Create a border around the expanded content
-	expandedStyle := lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(lipgloss.Color("62")).
-		Padding(0, 1).
-		Width(textWidth + 2).
-		Height(len(visibleLines))
-
-	// Show scroll indicators if needed
-	scrollInfo := ""
-	if len(lines) > maxExpandedHeight {
-		currentPage := (m.systemPromptScrollPos / maxExpandedHeight) + 1
-		totalPages := (len(lines) + maxExpandedHeight - 1) / maxExpandedHeight
-		scrollInfo = fmt.Sprintf(" [Page %d/%d]", currentPage, totalPages)
-	}
-
-	expandedContent := expandedStyle.Render(strings.Join(visibleLines, "\n"))
-
-	helpStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("240")).
-		Italic(true)
-
-	helpText := "PgUp/PgDn: Scroll • Enter: Edit"
-	if isEditing {
-		helpText = "Enter: Save • Esc: Cancel • PgUp/PgDn: Scroll"
-	}
-	help := helpStyle.Render("  " + helpText + scrollInfo)
-
-	return header + "\n" + expandedContent + "\n" + help
 }
 
 // wrapText wraps text to fit within the specified width
@@ -1256,4 +1550,85 @@ func (m *Model) autoSaveConfiguration() (tea.Cmd, error) {
 	}
 
 	return configUpdateCmd, nil
+}
+
+// ensureCursorVisible adjusts scroll position to keep cursor visible
+func (m *Model) ensureCursorVisible() {
+	if !m.systemPromptEditMode {
+		return
+	}
+
+	// Use the original text with indicators for line calculation
+	originalText := m.systemPromptEditInput
+	displayTextWithIndicators := m.renderVisibleChars(originalText)
+	textWidth := (m.width / 3) - 6 // Account for panel width and padding
+	if textWidth < 20 {
+		textWidth = 20
+	}
+
+	lines := m.wrapText(displayTextWithIndicators, textWidth)
+
+	// Find which line the cursor is on by counting characters in original text
+	charCount := 0
+	cursorLine := 0
+
+	// Convert cursor position in original text to display text position
+	displayCursor := m.convertCursorToDisplayPosition(originalText, m.systemPromptEditCursor)
+
+	for i, line := range lines {
+		if charCount+len(line) >= displayCursor {
+			cursorLine = i
+			break
+		}
+		charCount += len(line)
+		if charCount < len(displayTextWithIndicators) && displayTextWithIndicators[charCount] == '\n' {
+			charCount++
+		}
+	}
+
+	// Calculate available height for content
+	textAreaHeight := m.height - 12
+	if textAreaHeight < 5 {
+		textAreaHeight = 5
+	}
+
+	// Adjust scroll to keep cursor visible
+	if cursorLine < m.systemPromptScrollY {
+		m.systemPromptScrollY = cursorLine
+	} else if cursorLine >= m.systemPromptScrollY+textAreaHeight {
+		m.systemPromptScrollY = cursorLine - textAreaHeight + 1
+	}
+
+	// Ensure scroll doesn't go negative
+	if m.systemPromptScrollY < 0 {
+		m.systemPromptScrollY = 0
+	}
+} // convertCursorToDisplayPosition converts cursor position from original text to display text
+func (m Model) convertCursorToDisplayPosition(originalText string, cursorPos int) int {
+	if cursorPos <= 0 {
+		return 0
+	}
+	if cursorPos >= len(originalText) {
+		return len(m.renderVisibleChars(originalText))
+	}
+
+	// Convert the text up to cursor position
+	textBeforeCursor := originalText[:cursorPos]
+	displayTextBeforeCursor := m.renderVisibleChars(textBeforeCursor)
+	return len(displayTextBeforeCursor)
+}
+
+// renderVisibleChars adds visual indicators for hidden characters while preserving function
+func (m Model) renderVisibleChars(text string) string {
+	result := strings.ReplaceAll(text, "\n", "↵\n")  // Show ↵ before actual newlines
+	result = strings.ReplaceAll(result, "\t", "→\t") // Show → before actual tabs
+	return result
+}
+
+// min returns the smaller of two integers
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
 }
