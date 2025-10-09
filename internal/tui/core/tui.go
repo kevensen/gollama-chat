@@ -4,6 +4,7 @@ import (
 	"context"
 	"time"
 
+	"github.com/kevensen/gollama-chat/internal/agents"
 	"github.com/kevensen/gollama-chat/internal/configuration"
 	"github.com/kevensen/gollama-chat/internal/logging"
 	"github.com/kevensen/gollama-chat/internal/tooling"
@@ -35,18 +36,19 @@ const (
 
 // Model represents the main TUI model
 type Model struct {
-	ctx         context.Context
-	config      *configuration.Config
-	mcpManager  *mcpManager.Manager
-	activeTab   Tab
-	tabs        []string
-	chatModel   chat.Model
-	configModel configTab.Model
-	ragModel    ragTab.Model
-	toolsModel  toolsTab.Model
-	mcpModel    mcpTab.Model
-	width       int
-	height      int
+	ctx            context.Context
+	config         *configuration.Config
+	mcpManager     *mcpManager.Manager
+	agentsDetector *agents.Detector
+	activeTab      Tab
+	tabs           []string
+	chatModel      chat.Model
+	configModel    configTab.Model
+	ragModel       ragTab.Model
+	toolsModel     toolsTab.Model
+	mcpModel       mcpTab.Model
+	width          int
+	height         int
 }
 
 // NewModel creates a new TUI model
@@ -62,18 +64,31 @@ func NewModel(ctx context.Context, config *configuration.Config) *Model {
 	tooling.DefaultRegistry.SetMCPManager(sharedMCPManager)
 	logger.Debug("Set MCP manager on DefaultRegistry")
 
+	// Create agents detector
+	agentsDetector := agents.NewDetector(config.AgentsFileEnabled)
+	logger.Debug("Created agents detector", "enabled", config.AgentsFileEnabled)
+
+	// Detect AGENTS.md file in working directory
+	agentsFile, err := agentsDetector.DetectInWorkingDirectory()
+	if err != nil {
+		logger.Error("Failed to detect AGENTS.md file", "error", err)
+	} else if agentsFile != nil {
+		logger.Info("Detected AGENTS.md file", "path", agentsFile.Path)
+	}
+
 	logger.Debug("Initializing tab models")
 	model := &Model{
-		ctx:         ctx,
-		config:      config,
-		mcpManager:  sharedMCPManager,
-		activeTab:   ChatTab,
-		tabs:        []string{"Chat", "Settings", "RAG Collections", "Tools", "MCP Servers"},
-		chatModel:   chat.NewModel(ctx, config),
-		configModel: configTab.NewModel(config),
-		ragModel:    ragTab.NewModel(ctx, config),
-		toolsModel:  toolsTab.NewModel(ctx, config, sharedMCPManager),
-		mcpModel:    mcpTab.NewModel(ctx, config, sharedMCPManager),
+		ctx:            ctx,
+		config:         config,
+		mcpManager:     sharedMCPManager,
+		agentsDetector: agentsDetector,
+		activeTab:      ChatTab,
+		tabs:           []string{"Chat", "Settings", "RAG Collections", "Tools", "MCP Servers"},
+		chatModel:      chat.NewModelWithAgents(ctx, config, agentsFile),
+		configModel:    configTab.NewModel(config),
+		ragModel:       ragTab.NewModel(ctx, config),
+		toolsModel:     toolsTab.NewModel(ctx, config, sharedMCPManager),
+		mcpModel:       mcpTab.NewModel(ctx, config, sharedMCPManager),
 	}
 
 	logger.Info("TUI model created successfully")

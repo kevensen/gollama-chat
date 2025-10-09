@@ -33,6 +33,7 @@ const (
 	MaxDocumentsField
 	LogLevelField
 	EnableFileLoggingField
+	AgentsFileEnabledField
 )
 
 // Model represents the configuration tab model
@@ -400,7 +401,7 @@ func (m Model) handleNavigationKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 
 	case "down", "j":
-		if m.activeField < EnableFileLoggingField { // Updated to use actual last field
+		if m.activeField < AgentsFileEnabledField { // Updated to use actual last field
 			m.activeField++
 		}
 
@@ -416,7 +417,7 @@ func (m Model) handleNavigationKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	case "end":
 		// Go to last field
-		m.activeField = EnableFileLoggingField
+		m.activeField = AgentsFileEnabledField
 
 	case "enter", " ":
 		// Check if we should show model selection panel
@@ -445,7 +446,7 @@ func (m Model) handleNavigationKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.systemPromptEditCursor = 0
 			m.systemPromptEditMode = false
 			m.systemPromptScrollY = 0
-		} else if m.activeField == RAGEnabledField || m.activeField == EnableFileLoggingField {
+		} else if m.activeField == RAGEnabledField || m.activeField == EnableFileLoggingField || m.activeField == AgentsFileEnabledField {
 			// Toggle boolean fields directly
 			logger := logging.WithComponent("configuration_tab")
 			fieldName := m.getFieldName(m.activeField)
@@ -460,6 +461,10 @@ func (m Model) handleNavigationKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				oldValue = m.editConfig.EnableFileLogging
 				m.editConfig.EnableFileLogging = !m.editConfig.EnableFileLogging
 				newValue = m.editConfig.EnableFileLogging
+			case AgentsFileEnabledField:
+				oldValue = m.editConfig.AgentsFileEnabled
+				m.editConfig.AgentsFileEnabled = !m.editConfig.AgentsFileEnabled
+				newValue = m.editConfig.AgentsFileEnabled
 			}
 
 			logger.Info("Boolean field toggled", "field", fieldName, "old_value", oldValue, "new_value", newValue)
@@ -1024,6 +1029,7 @@ func (m Model) renderConfigurationViewWithWidth(width int) string {
 		{MaxDocumentsField, "Max Documents", fmt.Sprintf("%d", m.editConfig.MaxDocuments), "Maximum documents for RAG"},
 		{LogLevelField, "Log Level", m.editConfig.LogLevel, "Logging level (Enter/Space: Cycle through debug → info → warn → error)"},
 		{EnableFileLoggingField, "Enable File Logging", fmt.Sprintf("%t", m.editConfig.EnableFileLogging), "Enable logging to file (Enter/Space: Toggle)"},
+		{AgentsFileEnabledField, "AGENTS.md Detection", fmt.Sprintf("%t", m.editConfig.AgentsFileEnabled), "Automatically detect and use AGENTS.md files from working directory (Enter/Space: Toggle)"},
 	}
 
 	// Render remaining fields
@@ -1126,7 +1132,7 @@ func (m Model) renderField(field Field, label, value, help string) string {
 				displayValue = displayValue[:m.cursor] + "█" + displayValue[m.cursor+1:]
 			}
 		}
-	} else if field == RAGEnabledField || field == EnableFileLoggingField {
+	} else if field == RAGEnabledField || field == EnableFileLoggingField || field == AgentsFileEnabledField {
 		// Special formatting for toggle fields
 		var toggleSymbol, toggleColor string
 		if value == "true" {
@@ -1247,6 +1253,8 @@ func (m Model) getCurrentFieldValue() string {
 		return m.editConfig.LogLevel
 	case EnableFileLoggingField:
 		return fmt.Sprintf("%t", m.editConfig.EnableFileLogging)
+	case AgentsFileEnabledField:
+		return fmt.Sprintf("%t", m.editConfig.AgentsFileEnabled)
 	default:
 		return ""
 	}
@@ -1275,6 +1283,8 @@ func (m Model) getFieldName(field Field) string {
 		return "log_level"
 	case EnableFileLoggingField:
 		return "enable_file_logging"
+	case AgentsFileEnabledField:
+		return "agents_file_enabled"
 	default:
 		return "unknown_field"
 	}
@@ -1393,6 +1403,21 @@ func (m Model) setCurrentFieldValue(value string) error {
 		oldValue := m.editConfig.EnableFileLogging
 		m.editConfig.EnableFileLogging = fileLogging
 		logger.Info("File logging enabled changed", "old_value", oldValue, "new_value", m.editConfig.EnableFileLogging)
+
+	case AgentsFileEnabledField:
+		value = strings.ToLower(strings.TrimSpace(value))
+		var agentsEnabled bool
+		if value == "true" || value == "t" || value == "yes" || value == "y" || value == "1" {
+			agentsEnabled = true
+		} else if value == "false" || value == "f" || value == "no" || value == "n" || value == "0" {
+			agentsEnabled = false
+		} else {
+			logger.Error("Invalid agents file enabled value", "value", value)
+			return fmt.Errorf("agents file enabled must be true or false")
+		}
+		oldValue := m.editConfig.AgentsFileEnabled
+		m.editConfig.AgentsFileEnabled = agentsEnabled
+		logger.Info("Agents file detection changed", "old_value", oldValue, "new_value", m.editConfig.AgentsFileEnabled)
 	}
 
 	return nil

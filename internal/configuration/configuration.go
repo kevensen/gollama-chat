@@ -31,6 +31,7 @@ type Config struct {
 	MCPServers          []MCPServer     `json:"mcpServers"`        // MCP server configurations
 	LogLevel            string          `json:"logLevel"`          // Log level: debug, info, warn, error
 	EnableFileLogging   bool            `json:"enableFileLogging"` // Whether to log to file
+	AgentsFileEnabled   bool            `json:"agentsFileEnabled"` // Whether to automatically detect and use AGENTS.md files
 }
 
 // DefaultConfig returns a configuration with sensible defaults
@@ -52,6 +53,7 @@ func DefaultConfig() *Config {
 		MCPServers:          []MCPServer{},
 		LogLevel:            "info",
 		EnableFileLogging:   true,
+		AgentsFileEnabled:   true, // Enable AGENTS.md detection by default
 		DefaultSystemPrompt: "You are a helpful AI assistant with access to system tools. You can perform various tasks including executing bash commands and reading files when needed to help answer questions or complete tasks.\n\nAvailable built-in tools:\n- execute_bash: Execute bash commands on the system (requires user permission)\n  - Parameters: command (required), working_dir (optional), timeout (optional, max 300 seconds)\n  - Use for: running commands, checking system info, file operations, etc.\n- filesystem_read: Read local filesystem - get working directory, list directories, and read file contents\n  - Actions: get_working_directory, list_directory, read_file\n  - Use for: exploring file structures, reading configuration files, etc.\n\nWhen you need to use a tool, format your request as a tool call with proper JSON formatting. Always explain what you're doing and why. Your purpose is to provide direct, accurate answers to user questions. When providing lists of items (such as countries, capitals, features, etc.), format your response using proper numbered or bulleted lists. Be consistent in your formatting. If you don't know the answer, state that you are unable to provide a response.",
 	}
 }

@@ -13,6 +13,7 @@ import (
 	"github.com/oklog/ulid/v2"
 	"github.com/ollama/ollama/api"
 
+	"github.com/kevensen/gollama-chat/internal/agents"
 	"github.com/kevensen/gollama-chat/internal/configuration"
 	"github.com/kevensen/gollama-chat/internal/logging"
 	"github.com/kevensen/gollama-chat/internal/rag"
@@ -55,6 +56,9 @@ type Model struct {
 	ctx              context.Context
 	tokenCount       int  // Estimated token count for current conversation
 	showSystemPrompt bool // Whether to show the system prompt
+
+	// AGENTS.md integration
+	agentsFile *agents.AgentsFile // Detected AGENTS.md file for project context
 
 	// Session system prompt feature
 	sessionSystemPrompt       string // Current session system prompt (not persisted)
@@ -188,6 +192,44 @@ func NewModel(ctx context.Context, config *configuration.Config) Model {
 		pendingToolCalls:          make(map[string]api.ToolCall), // Initialize tool calls map
 		sessionSystemPrompt:       config.DefaultSystemPrompt,    // Initialize with default
 		sessionSystemPromptManual: false,                         // Initially uses default prompt
+		systemPromptEditMode:      false,
+		systemPromptEditor:        "",
+	}
+}
+
+// NewModelWithAgents creates a new chat model with AGENTS.md integration
+func NewModelWithAgents(ctx context.Context, config *configuration.Config, agentsFile *agents.AgentsFile) Model {
+	// Initialize RAG service
+	ragService := rag.NewService(config)
+
+	// Initialize input component
+	inputModel := input.NewModel()
+
+	// Create message cache
+	messageCache := NewMessageCache()
+
+	// Build system prompt with agents file content if available
+	systemPrompt := config.DefaultSystemPrompt
+	if agentsFile != nil {
+		systemPrompt += agentsFile.FormatAsSystemPromptAddition()
+	}
+
+	return Model{
+		config:                    config,
+		messages:                  []Message{},
+		ragService:                ragService,
+		ctx:                       ctx,
+		agentsFile:                agentsFile, // Store the agents file for reference
+		inputModel:                &inputModel,
+		messageCache:              messageCache,
+		styles:                    DefaultStyles(),
+		messagesNeedsUpdate:       true,
+		statusNeedsUpdate:         true,
+		systemPromptNeedsUpdate:   true,
+		showSystemPrompt:          false,                         // Initially hidden
+		pendingToolCalls:          make(map[string]api.ToolCall), // Initialize tool calls map
+		sessionSystemPrompt:       systemPrompt,                  // Initialize with agents-enhanced prompt
+		sessionSystemPromptManual: false,                         // Initially uses default prompt (enhanced with agents)
 		systemPromptEditMode:      false,
 		systemPromptEditor:        "",
 	}
