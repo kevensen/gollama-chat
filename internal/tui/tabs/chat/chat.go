@@ -1311,10 +1311,74 @@ func (m Model) denyToolExecution() (tea.Model, tea.Cmd) {
 // UpdateFromConfiguration updates the session system prompt from configuration changes
 // but only if the session prompt has not been manually modified
 func (m *Model) UpdateFromConfiguration(newConfig *configuration.Config) {
+	logger := logging.WithComponent("chat")
+
+	// Always log when this method is called
+	logger.Info("UpdateFromConfiguration called",
+		"old_rag_enabled", m.config.RAGEnabled,
+		"new_rag_enabled", newConfig.RAGEnabled,
+		"old_chromadb_url", m.config.ChromaDBURL,
+		"new_chromadb_url", newConfig.ChromaDBURL,
+		"old_embedding_model", m.config.EmbeddingModel,
+		"new_embedding_model", newConfig.EmbeddingModel,
+	)
+
+	// Check if RAG-related settings have changed
+	ragSettingsChanged := m.config.RAGEnabled != newConfig.RAGEnabled ||
+		m.config.ChromaDBURL != newConfig.ChromaDBURL ||
+		m.config.EmbeddingModel != newConfig.EmbeddingModel ||
+		m.config.ChromaDBDistance != newConfig.ChromaDBDistance ||
+		m.config.MaxDocuments != newConfig.MaxDocuments ||
+		!equalStringMaps(m.config.SelectedCollections, newConfig.SelectedCollections)
+
+	logger.Info("RAG settings change check",
+		"ragSettingsChanged", ragSettingsChanged,
+		"rag_enabled_changed", m.config.RAGEnabled != newConfig.RAGEnabled,
+		"chromadb_url_changed", m.config.ChromaDBURL != newConfig.ChromaDBURL,
+		"embedding_model_changed", m.config.EmbeddingModel != newConfig.EmbeddingModel,
+	)
+
+	if ragSettingsChanged {
+		logger.Info("RAG configuration changed, updating RAG service",
+			"old_rag_enabled", m.config.RAGEnabled,
+			"new_rag_enabled", newConfig.RAGEnabled,
+			"old_chromadb_url", m.config.ChromaDBURL,
+			"new_chromadb_url", newConfig.ChromaDBURL,
+			"old_embedding_model", m.config.EmbeddingModel,
+			"new_embedding_model", newConfig.EmbeddingModel,
+		)
+
+		// Update the configuration reference first
+		m.config = newConfig
+
+		// Update RAG service configuration
+		if m.ragService != nil {
+			// Update the RAG service's configuration reference to use the new config
+			m.ragService.UpdateConfig(newConfig)
+
+			// Update selected collections
+			m.ragService.UpdateSelectedCollections(newConfig.SelectedCollections)
+
+			// If RAG is enabled, reinitialize the service to pick up new settings
+			if newConfig.RAGEnabled {
+				go func() {
+					err := m.ragService.Initialize(m.ctx)
+					if err != nil {
+						logger.Warn("Failed to reinitialize RAG service after configuration change", "error", err.Error())
+					} else {
+						logger.Info("RAG service successfully reinitialized after configuration change")
+					}
+				}()
+			}
+		}
+	} else {
+		// Update the configuration reference
+		m.config = newConfig
+	}
+
 	// Only update session system prompt if it has not been manually modified
 	if !m.sessionSystemPromptManual {
 		if m.sessionSystemPrompt != newConfig.DefaultSystemPrompt {
-			logger := logging.WithComponent("chat")
 			logger.Info("Updating session system prompt from configuration change",
 				"old_prompt_length", len(m.sessionSystemPrompt),
 				"new_prompt_length", len(newConfig.DefaultSystemPrompt),
@@ -1324,9 +1388,19 @@ func (m *Model) UpdateFromConfiguration(newConfig *configuration.Config) {
 			m.systemPromptNeedsUpdate = true
 		}
 	}
+}
 
-	// Update the configuration reference
-	m.config = newConfig
+// equalStringMaps compares two map[string]bool for equality
+func equalStringMaps(a, b map[string]bool) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for k, v := range a {
+		if bv, ok := b[k]; !ok || bv != v {
+			return false
+		}
+	}
+	return true
 }
 
 // UpdateAgentsFile updates the AGENTS.md file for the chat model and refreshes the system prompt

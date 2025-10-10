@@ -459,6 +459,20 @@ func (m Model) handleNavigationKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				oldValue = m.editConfig.RAGEnabled
 				m.editConfig.RAGEnabled = !m.editConfig.RAGEnabled
 				newValue = m.editConfig.RAGEnabled
+
+				// If RAG is being enabled and embedding model is empty, set default
+				if newValue && m.editConfig.EmbeddingModel == "" {
+					m.editConfig.EmbeddingModel = "nomic-embed-text:latest"
+					logger.Info("RAG enabled with empty embedding model, setting default",
+						"embedding_model", m.editConfig.EmbeddingModel)
+				}
+
+				// If RAG is being enabled and ChromaDB URL is empty, set default
+				if newValue && m.editConfig.ChromaDBURL == "" {
+					m.editConfig.ChromaDBURL = "http://localhost:8000"
+					logger.Info("RAG enabled with empty ChromaDB URL, setting default",
+						"chromadb_url", m.editConfig.ChromaDBURL)
+				}
 			case EnableFileLoggingField:
 				oldValue = m.editConfig.EnableFileLogging
 				m.editConfig.EnableFileLogging = !m.editConfig.EnableFileLogging

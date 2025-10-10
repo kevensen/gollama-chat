@@ -146,20 +146,63 @@ func (s *Service) Initialize(ctx context.Context) error {
 // UpdateSelectedCollections updates the list of selected collections
 func (s *Service) UpdateSelectedCollections(selectedCollections map[string]bool) {
 	logger := logging.WithComponent("rag")
-	s.selectedCollections = make([]string, 0)
-	for collection, selected := range selectedCollections {
-		if selected {
-			s.selectedCollections = append(s.selectedCollections, collection)
+
+	// If no collections are specifically selected (empty map), auto-select all available collections
+	if len(selectedCollections) == 0 {
+		logger.Info("No collections specified in configuration, attempting to auto-select all available collections")
+
+		// Only auto-select if we have a connected client
+		if s.connected && s.client != nil {
+			ctx := context.Background()
+			collections, err := s.client.ListCollections(ctx)
+			if err != nil {
+				logger.Warn("Failed to auto-load collections, keeping existing selections", "error", err.Error())
+				// Keep existing selections if we can't fetch collections
+				return
+			}
+
+			s.selectedCollections = make([]string, 0, len(collections))
+			for _, collection := range collections {
+				s.selectedCollections = append(s.selectedCollections, collection.Name())
+			}
+			logger.Info("Auto-selected all available collections",
+				"selected_collections", s.selectedCollections,
+				"count", len(s.selectedCollections))
+		} else {
+			logger.Info("RAG service not connected, cannot auto-select collections")
+			s.selectedCollections = make([]string, 0)
 		}
+	} else {
+		// Use explicitly selected collections
+		s.selectedCollections = make([]string, 0)
+		for collection, selected := range selectedCollections {
+			if selected {
+				s.selectedCollections = append(s.selectedCollections, collection)
+			}
+		}
+		logger.Info("Updated RAG service with explicitly selected collections",
+			"selected_collections", s.selectedCollections,
+			"count", len(s.selectedCollections))
 	}
-	logger.Info("Updated RAG service selected collections",
-		"selected_collections", s.selectedCollections,
-		"count", len(s.selectedCollections))
 }
 
 // GetSelectedCollections returns the list of currently selected collections
 func (s *Service) GetSelectedCollections() []string {
 	return s.selectedCollections
+}
+
+// UpdateConfig updates the service's configuration reference
+func (s *Service) UpdateConfig(newConfig *configuration.Config) {
+	logger := logging.WithComponent("rag")
+	logger.Info("Updating RAG service configuration reference",
+		"old_chromadb_url", s.config.ChromaDBURL,
+		"new_chromadb_url", newConfig.ChromaDBURL,
+		"old_embedding_model", s.config.EmbeddingModel,
+		"new_embedding_model", newConfig.EmbeddingModel,
+		"old_rag_enabled", s.config.RAGEnabled,
+		"new_rag_enabled", newConfig.RAGEnabled,
+	)
+	s.config = newConfig
 }
 
 // IsReady checks if the service is ready to perform RAG operations
