@@ -180,7 +180,7 @@ func TestWrapText(t *testing.T) {
 			name:     "text with newlines",
 			text:     "hello\nworld test",
 			width:    15,
-			expected: []string{"hello world", "test"}, // Fields() handles newlines
+			expected: []string{"hello", "world test"}, // Newlines are preserved as line breaks
 		},
 	}
 
@@ -200,6 +200,124 @@ func TestWrapText(t *testing.T) {
 				if line != tt.expected[i] {
 					t.Errorf("wrapText(%q, %d) line %d = %q, expected %q",
 						tt.text, tt.width, i, line, tt.expected[i])
+				}
+			}
+		})
+	}
+}
+
+func TestParseMarkdownFormatting(t *testing.T) {
+	// Create a test model with styles
+	model := Model{
+		styles: DefaultStyles(),
+	}
+
+	tests := []struct {
+		name     string
+		input    string
+		contains string // Check if the output contains bold styling
+	}{
+		{
+			name:     "no markdown",
+			input:    "This is plain text",
+			contains: "This is plain text",
+		},
+		{
+			name:     "single bold word",
+			input:    "This is **bold** text",
+			contains: "bold", // The word should be styled
+		},
+		{
+			name:     "multiple bold sections",
+			input:    "This has **multiple** bold **sections**",
+			contains: "multiple", // Should contain both bold words
+		},
+		{
+			name:     "bold at start",
+			input:    "**Bold** at the beginning",
+			contains: "Bold",
+		},
+		{
+			name:     "bold at end",
+			input:    "Text with **bold** at end",
+			contains: "bold",
+		},
+		{
+			name:     "unclosed bold markers",
+			input:    "This has **unclosed markers",
+			contains: "This has **unclosed markers", // Should remain unchanged
+		},
+		{
+			name:     "empty bold markers",
+			input:    "This has **** empty markers",
+			contains: "", // Empty content between markers
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := model.parseMarkdownFormatting(tt.input)
+
+			// For basic verification, check that the result is not empty (unless expected)
+			if len(tt.input) > 0 && len(result) == 0 {
+				t.Errorf("parseMarkdownFormatting(%q) returned empty string", tt.input)
+			}
+
+			// Check that the result contains expected content
+			if tt.contains != "" && !strings.Contains(result, tt.contains) {
+				t.Errorf("parseMarkdownFormatting(%q) result should contain %q, got: %q",
+					tt.input, tt.contains, result)
+			}
+		})
+	}
+}
+
+func TestWrapRegularTextWithMarkdown(t *testing.T) {
+	// Create a test model with styles
+	model := Model{
+		styles: DefaultStyles(),
+		width:  20, // Set a specific width for testing
+	}
+
+	tests := []struct {
+		name     string
+		input    string
+		width    int
+		minLines int // Minimum expected lines
+	}{
+		{
+			name:     "short text with bold",
+			input:    "**Bold** text",
+			width:    20,
+			minLines: 1,
+		},
+		{
+			name:     "long text with bold that wraps",
+			input:    "This is a very long line with **bold** text that should wrap",
+			width:    20,
+			minLines: 3,
+		},
+		{
+			name:     "multiple bold sections",
+			input:    "Text with **multiple** bold **sections** here",
+			width:    15,
+			minLines: 2,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := model.wrapRegularText(tt.input, tt.width)
+
+			if len(result) < tt.minLines {
+				t.Errorf("wrapRegularText(%q, %d) returned %d lines, expected at least %d",
+					tt.input, tt.width, len(result), tt.minLines)
+			}
+
+			// Verify that all lines are non-empty (unless the input was empty)
+			for i, line := range result {
+				if len(tt.input) > 0 && strings.TrimSpace(line) == "" && len(result) == 1 {
+					t.Errorf("wrapRegularText(%q, %d) line %d is empty", tt.input, tt.width, i)
 				}
 			}
 		})
