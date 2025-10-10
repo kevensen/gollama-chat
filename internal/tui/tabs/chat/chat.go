@@ -1132,12 +1132,11 @@ func (m Model) wrapRegularText(text string, width int) []string {
 	return lines
 }
 
-// parseMarkdownFormatting processes text to apply markdown formatting like **bold**
+// parseMarkdownFormatting processes text to apply markdown formatting like **bold** and _italic_
 func (m Model) parseMarkdownFormatting(text string) string {
-	// Process **bold** text markers
 	result := text
 
-	// Find all **bold** patterns and replace them with styled text
+	// Process **bold** text markers first
 	for {
 		start := strings.Index(result, "**")
 		if start == -1 {
@@ -1162,6 +1161,33 @@ func (m Model) parseMarkdownFormatting(text string) string {
 
 		// Replace the **text** with styled text
 		result = result[:start] + styledText + result[end+2:]
+	}
+
+	// Process _italic_ text markers
+	for {
+		start := strings.Index(result, "_")
+		if start == -1 {
+			break
+		}
+
+		// Find the closing _
+		end := strings.Index(result[start+1:], "_")
+		if end == -1 {
+			// No closing _, leave as is
+			break
+		}
+
+		// Adjust end position to be relative to the full string
+		end = start + 1 + end
+
+		// Extract the text between _ markers
+		italicText := result[start+1 : end]
+
+		// Apply italic styling
+		styledText := m.styles.italicText.Render(italicText)
+
+		// Replace the _text_ with styled text
+		result = result[:start] + styledText + result[end+1:]
 	}
 
 	return result

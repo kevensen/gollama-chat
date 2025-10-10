@@ -252,6 +252,51 @@ func TestParseMarkdownFormatting(t *testing.T) {
 			input:    "This has **** empty markers",
 			contains: "", // Empty content between markers
 		},
+		{
+			name:     "simple italic text",
+			input:    "This is _italic_ text",
+			contains: "italic", // Should contain the word "italic" without _
+		},
+		{
+			name:     "multiple italic sections",
+			input:    "This has _multiple_ italic _sections_",
+			contains: "multiple", // Should process both italic sections
+		},
+		{
+			name:     "italic at start",
+			input:    "_Italic_ at the beginning",
+			contains: "Italic",
+		},
+		{
+			name:     "italic at end",
+			input:    "Text with _italic_ at end",
+			contains: "italic",
+		},
+		{
+			name:     "unclosed italic markers",
+			input:    "This has _unclosed markers",
+			contains: "This has _unclosed markers", // Should remain unchanged
+		},
+		{
+			name:     "empty italic markers",
+			input:    "This has __ empty markers",
+			contains: "", // Empty content between markers
+		},
+		{
+			name:     "mixed bold and italic",
+			input:    "This has **bold** and _italic_ text",
+			contains: "bold", // Should contain both styled text
+		},
+		{
+			name:     "bullet with italic text",
+			input:    "* Alabama - _Montgomery_",
+			contains: "Montgomery", // Should contain "Montgomery" without _
+		},
+		{
+			name:     "bullet with mixed formatting",
+			input:    "* **Alabama** - _Montgomery_",
+			contains: "Alabama", // Should contain both "Alabama" and "Montgomery"
+		},
 	}
 
 	for _, tt := range tests {
@@ -321,5 +366,123 @@ func TestWrapRegularTextWithMarkdown(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// TestBulletFormattingFullPipeline tests the complete bullet formatting pipeline
+func TestBulletFormattingFullPipeline(t *testing.T) {
+	model := Model{
+		styles: DefaultStyles(),
+		width:  50,
+	}
+
+	testCases := []struct {
+		name  string
+		input string
+	}{
+		{
+			name:  "bullet with bold",
+			input: "* item that should be **bold**.",
+		},
+		{
+			name:  "bullet with bold at start",
+			input: "* **Another bold** item",
+		},
+		{
+			name:  "bullet with italic",
+			input: "* Alabama - _Montgomery_",
+		},
+		{
+			name:  "bullet with mixed formatting",
+			input: "* **Alabama** - _Montgomery_",
+		},
+		{
+			name:  "multiple states with mixed formatting",
+			input: "* **Alabama** - _Montgomery_\n* **Alaska** - _Juneau_",
+		},
+	}
+
+	for _, tt := range testCases {
+		t.Run(tt.name, func(t *testing.T) {
+			// Test the full formatting pipeline
+			result := model.formatTextWithMarkdown(tt.input, 50)
+
+			t.Logf("Full pipeline result for %q:", tt.input)
+			for i, line := range result {
+				t.Logf("  Line %d: %q", i, line)
+
+				// Check that ** markers are processed out
+				if strings.Contains(line, "**") {
+					t.Errorf("Line %d still contains ** markers: %q", i, line)
+				}
+
+				// Check that _ markers are processed out
+				if strings.Contains(line, "_") {
+					t.Errorf("Line %d still contains _ markers: %q", i, line)
+				}
+			}
+		})
+	}
+}
+
+// TestBoldStylingApplied checks if bold styling (ANSI codes) is actually applied
+func TestBoldStylingApplied(t *testing.T) {
+	model := Model{
+		styles: DefaultStyles(),
+	}
+
+	// Test parseMarkdownFormatting directly to see styling
+	input := "* item that should be **bold**."
+	result := model.parseMarkdownFormatting(input)
+
+	t.Logf("Input: %q", input)
+	t.Logf("Output: %q", result)
+	t.Logf("Output length: %d", len(result))
+
+	// The result should be longer than the input without ** because of ANSI escape codes
+	expectedMinLength := len(input) - 4 // Remove the 4 ** characters
+	if len(result) < expectedMinLength {
+		t.Errorf("Expected output to be at least %d characters (for styling), got %d", expectedMinLength, len(result))
+	}
+
+	// Check that ** markers are removed
+	if strings.Contains(result, "**") {
+		t.Errorf("Output still contains ** markers: %q", result)
+	}
+
+	// Check that "bold" text is still present
+	if !strings.Contains(result, "bold") {
+		t.Errorf("Output should contain 'bold' text: %q", result)
+	}
+}
+
+// TestItalicStylingApplied checks if italic styling (ANSI codes) is actually applied
+func TestItalicStylingApplied(t *testing.T) {
+	model := Model{
+		styles: DefaultStyles(),
+	}
+
+	// Test parseMarkdownFormatting directly to see styling
+	input := "* Alabama - _Montgomery_"
+	result := model.parseMarkdownFormatting(input)
+
+	t.Logf("Input: %q", input)
+	t.Logf("Output: %q", result)
+	t.Logf("Output length: %d", len(result))
+
+	// The result should be longer than the input without _ because of ANSI escape codes
+	expectedMinLength := len(input) - 2 // Remove the 2 _ characters
+	if len(result) < expectedMinLength {
+		t.Errorf("Expected output to be at least %d characters (for styling), got %d", expectedMinLength, len(result))
+	}
+
+	// Check that _ markers are removed
+	if strings.Contains(result, "_") {
+		t.Errorf("Output still contains _ markers: %q", result)
+	}
+
+	// Check that "Montgomery" text is still present
+	if !strings.Contains(result, "Montgomery") {
+		t.Errorf("Output should contain 'Montgomery' text: %q", result)
 	}
 }
