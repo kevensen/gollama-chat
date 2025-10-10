@@ -492,19 +492,23 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 
 		case "ctrl+e":
-			// Enter edit mode for system prompt - open pane if needed
+			// Only handle system prompt editing if system prompt is visible and has focus
+			// Otherwise, delegate to input model for cursor movement to end
 			debugLog(fmt.Sprintf("Ctrl+E pressed, current state: showSystemPrompt=%t, systemPromptEditMode=%t", m.showSystemPrompt, m.systemPromptEditMode))
-			if !m.showSystemPrompt {
-				// Open system prompt pane if it's not visible
-				m.showSystemPrompt = true
-				m.messagesNeedsUpdate = true // Force layout refresh
-				debugLog("Opened system prompt pane")
+			if m.showSystemPrompt && !m.systemPromptEditMode {
+				// System prompt is visible but not in edit mode - enter edit mode
+				m.systemPromptEditMode = true
+				m.systemPromptEditor = "" // Clear the prompt as requested
+				m.systemPromptNeedsUpdate = true
+				debugLog("Set systemPromptEditMode=true, cleared editor")
+				return m, nil
+			} else if !m.showSystemPrompt || m.systemPromptEditMode {
+				// System prompt not visible OR already in edit mode - delegate to input model for cursor movement
+				debugLog("Delegating ctrl+e to input model for cursor movement")
+				updatedInputModel, cmd := m.inputModel.Update(msg)
+				m.inputModel = &updatedInputModel
+				return m, cmd
 			}
-			// Always enter edit mode and clear the prompt
-			m.systemPromptEditMode = true
-			m.systemPromptEditor = "" // Clear the prompt as requested
-			m.systemPromptNeedsUpdate = true
-			debugLog("Set systemPromptEditMode=true, cleared editor")
 			return m, nil
 
 		case "ctrl+r":

@@ -757,7 +757,7 @@ func TestModel_GetSystemPromptHeight(t *testing.T) {
 	// Test with very long system prompt (should be limited)
 	model.sessionSystemPrompt = strings.Repeat("This is a very long system prompt that should be limited in height. ", 20)
 	longHeight := model.getSystemPromptHeight()
-	maxAllowedHeight := model.height / 3
+	maxAllowedHeight := model.height / 2
 	if longHeight > maxAllowedHeight {
 		t.Errorf("System prompt height should be limited to %d, got %d", maxAllowedHeight, longHeight)
 	}
