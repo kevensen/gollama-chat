@@ -23,6 +23,9 @@ type Styles struct {
 
 	// Style for the system prompt panel
 	systemPrompt lipgloss.Style
+
+	// Style for bold text within message content
+	boldText lipgloss.Style
 }
 
 // DefaultStyles creates default styles for the chat UI
@@ -55,5 +58,8 @@ func DefaultStyles() Styles {
 			BorderForeground(lipgloss.Color("13")). // Purple border for distinction
 			Padding(1, 1).
 			Foreground(lipgloss.Color("15")), // Normal white text, no background
+
+		boldText: lipgloss.NewStyle().
+			Bold(true),
 	}
 }

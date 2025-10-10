@@ -847,21 +847,255 @@ func (m Model) scrollToBottom() {
 	// Don't trigger resize/reflow of the overall UI when scrolling
 }
 
-// wrapText wraps text to fit within the specified width
+// wrapText wraps text to fit within the specified width while preserving formatting
 func (m Model) wrapText(text string, width int) []string {
 	// Early return for edge cases
 	if width <= 0 {
 		return []string{text}
 	}
 
-	// Optimization for short texts that don't need wrapping
-	if len(text) <= width {
+	return m.formatTextWithMarkdown(text, width)
+}
+
+// formatTextWithMarkdown processes text with enhanced formatting support
+func (m Model) formatTextWithMarkdown(text string, width int) []string {
+	var result []string
+
+	// Split by newlines first to preserve explicit line breaks
+	lines := strings.Split(text, "\n")
+
+	for _, line := range lines {
+		// Handle different types of content
+		if strings.TrimSpace(line) == "" {
+			// Preserve empty lines
+			result = append(result, "")
+		} else if m.isCodeBlock(line) {
+			// Handle code blocks (preserve indentation and tabs)
+			result = append(result, m.formatCodeLine(line, width))
+		} else if m.isBulletPoint(line) {
+			// Handle bullet points
+			result = append(result, m.formatBulletLine(line, width)...)
+		} else if m.isNumberedList(line) {
+			// Handle numbered lists
+			result = append(result, m.formatNumberedLine(line, width)...)
+		} else {
+			// Regular text with word wrapping
+			result = append(result, m.wrapRegularText(line, width)...)
+		}
+	}
+
+	return result
+}
+
+// isCodeBlock checks if a line appears to be code (starts with spaces/tabs or has code-like patterns)
+func (m Model) isCodeBlock(line string) bool {
+	trimmed := strings.TrimSpace(line)
+	if trimmed == "" {
+		return false
+	}
+
+	// Check for indentation (4+ spaces or tabs)
+	if strings.HasPrefix(line, "    ") || strings.HasPrefix(line, "\t") {
+		return true
+	}
+
+	// Check for code block markers
+	if strings.HasPrefix(trimmed, "```") {
+		return true
+	}
+
+	// Check for common code patterns
+	codePatterns := []string{
+		"func ", "def ", "class ", "import ", "from ", "package ",
+		"const ", "var ", "let ", "if (", "for (", "while (",
+		"    }", "    {", "};", "){", "(){",
+	}
+
+	for _, pattern := range codePatterns {
+		if strings.Contains(trimmed, pattern) {
+			return true
+		}
+	}
+
+	return false
+}
+
+// formatCodeLine handles code lines by preserving indentation and tabs
+func (m Model) formatCodeLine(line string, width int) string {
+	// Convert tabs to spaces for consistent display (4 spaces per tab)
+	expanded := strings.ReplaceAll(line, "\t", "    ")
+
+	// If the line is too long, truncate with ellipsis rather than wrap
+	if len(expanded) > width-3 {
+		return expanded[:width-3] + "..."
+	}
+
+	return expanded
+}
+
+// isBulletPoint checks if a line is a bullet point
+func (m Model) isBulletPoint(line string) bool {
+	trimmed := strings.TrimSpace(line)
+	if trimmed == "" {
+		return false
+	}
+
+	// Check for various bullet point markers
+	bulletMarkers := []string{"• ", "* ", "- ", "+ ", "◦ ", "▪ ", "▫ "}
+
+	for _, marker := range bulletMarkers {
+		if strings.HasPrefix(trimmed, marker) {
+			return true
+		}
+	}
+
+	return false
+}
+
+// formatBulletLine handles bullet point formatting with proper indentation
+func (m Model) formatBulletLine(line string, width int) []string {
+	trimmed := strings.TrimSpace(line)
+
+	// Find the bullet marker and content
+	var marker, content string
+	bulletMarkers := []string{"• ", "* ", "- ", "+ ", "◦ ", "▪ ", "▫ "}
+
+	for _, bm := range bulletMarkers {
+		if strings.HasPrefix(trimmed, bm) {
+			marker = bm
+			content = strings.TrimSpace(trimmed[len(bm):])
+			break
+		}
+	}
+
+	if marker == "" {
+		// Fallback to regular text wrapping
+		return m.wrapRegularText(line, width)
+	}
+
+	// Calculate indentation for continuation lines
+	indent := strings.Repeat(" ", len(marker))
+	availableWidth := width - len(marker)
+
+	if availableWidth <= 0 {
+		return []string{line}
+	}
+
+	// Wrap the content
+	wrappedContent := m.wrapRegularText(content, availableWidth)
+
+	var result []string
+	for i, contentLine := range wrappedContent {
+		if i == 0 {
+			// First line gets the bullet marker
+			result = append(result, marker+contentLine)
+		} else {
+			// Continuation lines get indented
+			result = append(result, indent+contentLine)
+		}
+	}
+
+	return result
+}
+
+// isNumberedList checks if a line is part of a numbered list
+func (m Model) isNumberedList(line string) bool {
+	trimmed := strings.TrimSpace(line)
+	if trimmed == "" {
+		return false
+	}
+
+	// Check for numbered list pattern (number followed by . or ))
+	for i, r := range trimmed {
+		if r >= '0' && r <= '9' {
+			continue
+		} else if r == '.' || r == ')' {
+			// Found a number followed by . or ), check if there's a space after
+			if i > 0 && i+1 < len(trimmed) && trimmed[i+1] == ' ' {
+				return true
+			}
+			break
+		} else {
+			break
+		}
+	}
+
+	return false
+}
+
+// formatNumberedLine handles numbered list formatting
+func (m Model) formatNumberedLine(line string, width int) []string {
+	trimmed := strings.TrimSpace(line)
+
+	// Find the number and content
+	var prefix, content string
+	for i, r := range trimmed {
+		if r >= '0' && r <= '9' {
+			continue
+		} else if r == '.' || r == ')' {
+			if i > 0 && i+1 < len(trimmed) && trimmed[i+1] == ' ' {
+				prefix = trimmed[:i+2] // Include the number, delimiter, and space
+				content = strings.TrimSpace(trimmed[i+2:])
+				break
+			}
+		} else {
+			break
+		}
+	}
+
+	if prefix == "" {
+		// Fallback to regular text wrapping
+		return m.wrapRegularText(line, width)
+	}
+
+	// Calculate indentation for continuation lines
+	indent := strings.Repeat(" ", len(prefix))
+	availableWidth := width - len(prefix)
+
+	if availableWidth <= 0 {
+		return []string{line}
+	}
+
+	// Wrap the content
+	wrappedContent := m.wrapRegularText(content, availableWidth)
+
+	var result []string
+	for i, contentLine := range wrappedContent {
+		if i == 0 {
+			// First line gets the number prefix
+			result = append(result, prefix+contentLine)
+		} else {
+			// Continuation lines get indented
+			result = append(result, indent+contentLine)
+		}
+	}
+
+	return result
+}
+
+// wrapRegularText performs word-wrapping on regular text with markdown formatting
+func (m Model) wrapRegularText(text string, width int) []string {
+	if width <= 0 {
 		return []string{text}
 	}
 
-	words := strings.Fields(text)
-	if len(words) == 0 {
+	// Apply markdown formatting first
+	formattedText := m.parseMarkdownFormatting(text)
+
+	// For wrapped text with styling, we need to handle it line by line
+	// since lipgloss styles can contain ANSI escape codes that affect visual length
+	// but not the actual character count for wrapping purposes
+
+	// For simplicity in this implementation, we'll work with the original text
+	// for length calculations but apply formatting to each final line
+	originalWords := strings.Fields(text)
+	if len(originalWords) == 0 {
 		return []string{""}
+	}
+
+	// Optimization for short texts that don't need wrapping
+	if len(text) <= width {
+		return []string{formattedText}
 	}
 
 	// Preallocate the result slice based on an estimate
@@ -871,7 +1105,7 @@ func (m Model) wrapText(text string, width int) []string {
 	// Use strings.Builder for better performance
 	var sb strings.Builder
 
-	for _, word := range words {
+	for _, word := range originalWords {
 		// Check if adding this word would exceed the width
 		if sb.Len() == 0 {
 			sb.WriteString(word)
@@ -879,8 +1113,10 @@ func (m Model) wrapText(text string, width int) []string {
 			sb.WriteString(" ")
 			sb.WriteString(word)
 		} else {
-			// Line is full, append it and start a new one
-			lines = append(lines, sb.String())
+			// Line is full, apply formatting and append it, then start a new one
+			lineText := sb.String()
+			formattedLine := m.parseMarkdownFormatting(lineText)
+			lines = append(lines, formattedLine)
 			sb.Reset()
 			sb.WriteString(word)
 		}
@@ -888,10 +1124,47 @@ func (m Model) wrapText(text string, width int) []string {
 
 	// Add the last line if there's anything left
 	if sb.Len() > 0 {
-		lines = append(lines, sb.String())
+		lineText := sb.String()
+		formattedLine := m.parseMarkdownFormatting(lineText)
+		lines = append(lines, formattedLine)
 	}
 
 	return lines
+}
+
+// parseMarkdownFormatting processes text to apply markdown formatting like **bold**
+func (m Model) parseMarkdownFormatting(text string) string {
+	// Process **bold** text markers
+	result := text
+
+	// Find all **bold** patterns and replace them with styled text
+	for {
+		start := strings.Index(result, "**")
+		if start == -1 {
+			break
+		}
+
+		// Find the closing **
+		end := strings.Index(result[start+2:], "**")
+		if end == -1 {
+			// No closing **, leave as is
+			break
+		}
+
+		// Adjust end position to be relative to the full string
+		end = start + 2 + end
+
+		// Extract the text between ** markers
+		boldText := result[start+2 : end]
+
+		// Apply bold styling
+		styledText := m.styles.boldText.Render(boldText)
+
+		// Replace the **text** with styled text
+		result = result[:start] + styledText + result[end+2:]
+	}
+
+	return result
 }
 
 // renderStatusBar renders the status bar showing model and token information

@@ -637,6 +637,97 @@ func TestModel_FormatMessage(t *testing.T) {
 	}
 }
 
+// TestModel_EnhancedFormatting tests the new enhanced formatting features
+func TestModel_EnhancedFormatting(t *testing.T) {
+	config := &configuration.Config{
+		ChatModel:      "test-model",
+		EmbeddingModel: "test-embedding",
+		OllamaURL:      "http://localhost:11434",
+	}
+	ctx := t.Context()
+	model := NewModel(ctx, config)
+	model.width = 80
+	model.styles = DefaultStyles()
+
+	testTime := time.Date(2025, 9, 19, 14, 30, 45, 0, time.UTC)
+
+	tests := []struct {
+		name             string
+		content          string
+		expectedContains []string
+		shouldPreserve   []string // These strings should appear on their own lines
+	}{
+		{
+			name:             "bullet points formatting",
+			content:          "Here are some points:\n\n• First point\n• Second point\n• Third point",
+			expectedContains: []string{"Here are some points:", "• First point", "• Second point", "• Third point"},
+			shouldPreserve:   []string{"• First point", "• Second point", "• Third point"},
+		},
+		{
+			name:             "numbered list formatting",
+			content:          "Steps to follow:\n\n1. First step\n2. Second step\n3. Third step",
+			expectedContains: []string{"Steps to follow:", "1. First step", "2. Second step", "3. Third step"},
+			shouldPreserve:   []string{"1. First step", "2. Second step", "3. Third step"},
+		},
+		{
+			name:             "code block formatting",
+			content:          "Here's some code:\n\n    function test() {\n        return true;\n    }",
+			expectedContains: []string{"Here's some code:", "function test() {", "return true;", "}"},
+		},
+		{
+			name:             "mixed formatting",
+			content:          "Overview:\n\n• Key point 1\n• Key point 2\n\n1. Step one\n2. Step two\n\nCode:\n    console.log('test');",
+			expectedContains: []string{"Overview:", "• Key point 1", "• Key point 2", "1. Step one", "2. Step two", "Code:", "console.log('test');"},
+		},
+		{
+			name:             "empty lines preserved",
+			content:          "Line 1\n\nLine 3\n\n\nLine 6",
+			expectedContains: []string{"Line 1", "Line 3", "Line 6"},
+		},
+		{
+			name:             "tabs converted to spaces",
+			content:          "Normal text\n\tIndented with tab\n\t\tDouble indented",
+			expectedContains: []string{"Normal text", "    Indented with tab", "        Double indented"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			msg := Message{
+				Role:    "assistant",
+				Content: tt.content,
+				Time:    testTime,
+				ULID:    "test-ulid",
+			}
+
+			lines := model.formatMessage(msg)
+
+			// Join all lines to check for expected content
+			allContent := strings.Join(lines, "\n")
+
+			for _, expected := range tt.expectedContains {
+				if !strings.Contains(allContent, expected) {
+					t.Errorf("Formatted message should contain %q\nGot:\n%s", expected, allContent)
+				}
+			}
+
+			// Check that specific strings are preserved on their own lines
+			for _, preserve := range tt.shouldPreserve {
+				found := false
+				for _, line := range lines {
+					if strings.Contains(line, preserve) {
+						found = true
+						break
+					}
+				}
+				if !found {
+					t.Errorf("String %q should be preserved in formatting\nGot:\n%s", preserve, allContent)
+				}
+			}
+		})
+	}
+}
+
 func TestModel_GetSystemPromptHeight(t *testing.T) {
 	config := &configuration.Config{
 		ChatModel:      "test-model",
