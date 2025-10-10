@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/atotto/clipboard"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/oklog/ulid/v2"
@@ -514,6 +515,42 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				debugLog("Restored default system prompt in editor")
 				return m, nil
 			}
+
+		case "ctrl+shift+c":
+			// Copy conversation history to clipboard
+			err := m.copyConversationToClipboard()
+			if err != nil {
+				// Add error message to show copy failed
+				errorULID := generateULID()
+				errorMsg := Message{
+					Role:    "system",
+					Content: fmt.Sprintf("Failed to copy conversation to clipboard: %s", err.Error()),
+					Time:    time.Now(),
+					ULID:    errorULID,
+				}
+				m.messages = append(m.messages, errorMsg)
+				m.messagesNeedsUpdate = true
+				m.messageCache.InvalidateCache()
+
+				// Log error
+				logConversationEvent(errorULID, "system", errorMsg.Content, m.config.ChatModel)
+			} else {
+				// Add success message to show copy succeeded
+				successULID := generateULID()
+				successMsg := Message{
+					Role:    "system",
+					Content: "Conversation history copied to clipboard.",
+					Time:    time.Now(),
+					ULID:    successULID,
+				}
+				m.messages = append(m.messages, successMsg)
+				m.messagesNeedsUpdate = true
+				m.messageCache.InvalidateCache()
+
+				// Log success
+				logConversationEvent(successULID, "system", successMsg.Content, m.config.ChatModel)
+			}
+			return m, nil
 
 		case "ctrl+l":
 			// Clear chat
@@ -1427,6 +1464,62 @@ func equalStringMaps(a, b map[string]bool) bool {
 		}
 	}
 	return true
+}
+
+// formatConversationHistory formats the conversation history as a readable text string for copying
+func (m *Model) formatConversationHistory() string {
+	if len(m.messages) == 0 {
+		return "No conversation history available."
+	}
+
+	var sb strings.Builder
+	sb.WriteString("Conversation History\n")
+	sb.WriteString("==================\n\n")
+
+	for i, msg := range m.messages {
+		// Skip hidden messages (like tool responses)
+		if msg.Hidden {
+			continue
+		}
+
+		// Format timestamp
+		timestamp := msg.Time.Format("2006-01-02 15:04:05")
+
+		// Format role
+		role := strings.ToUpper(msg.Role)
+
+		// Write header
+		sb.WriteString(fmt.Sprintf("[%s] %s:\n", timestamp, role))
+
+		// Handle tool messages differently
+		if msg.Role == "tool" && msg.ToolName != "" {
+			sb.WriteString(fmt.Sprintf("Tool: %s\n", msg.ToolName))
+		}
+
+		// Write content with proper indentation
+		content := strings.TrimSpace(msg.Content)
+		if content != "" {
+			// Indent content for readability
+			lines := strings.Split(content, "\n")
+			for _, line := range lines {
+				sb.WriteString("  " + line + "\n")
+			}
+		}
+
+		// Add separator between messages (except for the last one)
+		if i < len(m.messages)-1 {
+			sb.WriteString("\n---\n\n")
+		}
+	}
+
+	sb.WriteString("\n\nEnd of conversation history.")
+	return sb.String()
+}
+
+// copyConversationToClipboard copies the formatted conversation history to the system clipboard
+func (m *Model) copyConversationToClipboard() error {
+	formattedHistory := m.formatConversationHistory()
+	return clipboard.WriteAll(formattedHistory)
 }
 
 // UpdateAgentsFile updates the AGENTS.md file for the chat model and refreshes the system prompt
