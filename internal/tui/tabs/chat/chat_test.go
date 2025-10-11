@@ -1525,7 +1525,7 @@ func TestFormatConversationHistory(t *testing.T) {
 		SelectedCollections: make(map[string]bool),
 	}
 
-	ctx := context.Background()
+	ctx := t.Context()
 	model := NewModel(ctx, config)
 
 	// Test with empty conversation
@@ -1612,7 +1612,7 @@ func TestCopyConversationKeyBinding(t *testing.T) {
 		SelectedCollections: make(map[string]bool),
 	}
 
-	ctx := context.Background()
+	ctx := t.Context()
 	model := NewModel(ctx, config)
 
 	// Add some test messages

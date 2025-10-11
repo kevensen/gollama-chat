@@ -3,7 +3,6 @@ package configuration
 import (
 	"fmt"
 	"maps"
-	"strconv"
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -24,13 +23,8 @@ type Field int
 
 const (
 	ChatModelField Field = iota
-	EmbeddingModelField
 	DefaultSystemPromptField
-	RAGEnabledField
 	OllamaURLField
-	ChromaDBURLField
-	ChromaDBDistanceField
-	MaxDocumentsField
 	LogLevelField
 	EnableFileLoggingField
 	AgentsFileEnabledField
@@ -64,26 +58,24 @@ func NewModel(config *configuration.Config) Model {
 	logger := logging.WithComponent("configuration_tab")
 	logger.Info("Creating new configuration model", "ollama_url", config.OllamaURL, "chromadb_url", config.ChromaDBURL, "rag_enabled", config.RAGEnabled)
 
+	// Get system prompt from file
+	systemPrompt, err := config.GetSystemPrompt()
+	if err != nil {
+		logger.Error("Failed to load system prompt", "error", err)
+		systemPrompt = "" // Fall back to empty string
+	}
+
 	// Create a copy for editing
 	editConfig := &configuration.Config{
 		ChatModel:           config.ChatModel,
-		EmbeddingModel:      config.EmbeddingModel,
-		RAGEnabled:          config.RAGEnabled,
 		OllamaURL:           config.OllamaURL,
-		ChromaDBURL:         config.ChromaDBURL,
-		ChromaDBDistance:    config.ChromaDBDistance,
-		MaxDocuments:        config.MaxDocuments,
-		SelectedCollections: make(map[string]bool),
-		DefaultSystemPrompt: config.DefaultSystemPrompt,
+		DefaultSystemPrompt: systemPrompt, // Use system prompt from file
 		ToolTrustLevels:     make(map[string]int),
 		MCPServers:          make([]configuration.MCPServer, len(config.MCPServers)),
 		LogLevel:            config.LogLevel,
 		EnableFileLogging:   config.EnableFileLogging,
 		AgentsFileEnabled:   config.AgentsFileEnabled,
 	}
-
-	// Copy the selectedCollections map
-	maps.Copy(editConfig.SelectedCollections, config.SelectedCollections)
 
 	// Copy the toolTrustLevels map
 	maps.Copy(editConfig.ToolTrustLevels, config.ToolTrustLevels)
@@ -196,6 +188,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Update our main config reference
 		m.config = msg.Config
 
+		// Get system prompt from file for the updated config
+		systemPrompt, err := msg.Config.GetSystemPrompt()
+		if err != nil {
+			logger.Error("Failed to load system prompt during config update", "error", err)
+			systemPrompt = "" // Fall back to empty string
+		}
+
 		// Update editConfig to reflect the new state, but preserve any current edits
 		// This ensures that if the user is currently editing fields, their changes are preserved
 		// while still picking up changes from other tabs (like MCP server changes)
@@ -210,7 +209,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				ChromaDBDistance:    msg.Config.ChromaDBDistance,
 				MaxDocuments:        msg.Config.MaxDocuments,
 				SelectedCollections: make(map[string]bool),
-				DefaultSystemPrompt: msg.Config.DefaultSystemPrompt,
+				DefaultSystemPrompt: systemPrompt, // Use system prompt from file
 				ToolTrustLevels:     make(map[string]int),
 				MCPServers:          make([]configuration.MCPServer, len(msg.Config.MCPServers)),
 				LogLevel:            msg.Config.LogLevel,
@@ -285,16 +284,22 @@ func (m Model) handleNavigationKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.editConfig.DefaultSystemPrompt = m.systemPromptEditInput
 				m.systemPromptEditMode = false
 
-				// Auto-save the configuration after system prompt update
-				if updateCmd, saveErr := m.autoSaveConfiguration(); saveErr != nil {
-					m.message = fmt.Sprintf("System prompt updated but save failed: %s", saveErr.Error())
+				// Save system prompt to file using the new method
+				if err := m.config.SetSystemPrompt(m.systemPromptEditInput); err != nil {
+					m.message = fmt.Sprintf("System prompt save failed: %s", err.Error())
 					m.messageStyle = m.messageStyle.Foreground(lipgloss.Color("11")) // Yellow for warning
 					return m, nil
-				} else {
-					m.message = "System prompt updated and saved"
-					m.messageStyle = m.messageStyle.Foreground(lipgloss.Color("10"))
-					return m, updateCmd
 				}
+
+				// System prompt saved successfully - no need to save main config since it's in a separate file
+				m.message = "System prompt updated and saved"
+				m.messageStyle = m.messageStyle.Foreground(lipgloss.Color("10"))
+				
+				// Send config update message to notify other tabs that the system prompt changed
+				updateCmd := func() tea.Msg {
+					return ConfigUpdatedMsg{Config: m.config}
+				}
+				return m, updateCmd
 			}
 			return m, nil
 		}
@@ -423,7 +428,7 @@ func (m Model) handleNavigationKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	case "enter", " ":
 		// Check if we should show model selection panel
-		if m.activeField == ChatModelField || m.activeField == EmbeddingModelField {
+		if m.activeField == ChatModelField {
 			if m.ollamaStatus == connection.StatusConnected {
 				var mode models.SelectionMode
 				if m.activeField == ChatModelField {
@@ -448,31 +453,13 @@ func (m Model) handleNavigationKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.systemPromptEditCursor = 0
 			m.systemPromptEditMode = false
 			m.systemPromptScrollY = 0
-		} else if m.activeField == RAGEnabledField || m.activeField == EnableFileLoggingField || m.activeField == AgentsFileEnabledField {
+		} else if m.activeField == EnableFileLoggingField || m.activeField == AgentsFileEnabledField {
 			// Toggle boolean fields directly
 			logger := logging.WithComponent("configuration_tab")
 			fieldName := m.getFieldName(m.activeField)
 			var oldValue, newValue bool
 
 			switch m.activeField {
-			case RAGEnabledField:
-				oldValue = m.editConfig.RAGEnabled
-				m.editConfig.RAGEnabled = !m.editConfig.RAGEnabled
-				newValue = m.editConfig.RAGEnabled
-
-				// If RAG is being enabled and embedding model is empty, set default
-				if newValue && m.editConfig.EmbeddingModel == "" {
-					m.editConfig.EmbeddingModel = "nomic-embed-text:latest"
-					logger.Info("RAG enabled with empty embedding model, setting default",
-						"embedding_model", m.editConfig.EmbeddingModel)
-				}
-
-				// If RAG is being enabled and ChromaDB URL is empty, set default
-				if newValue && m.editConfig.ChromaDBURL == "" {
-					m.editConfig.ChromaDBURL = "http://localhost:8000"
-					logger.Info("RAG enabled with empty ChromaDB URL, setting default",
-						"chromadb_url", m.editConfig.ChromaDBURL)
-				}
 			case EnableFileLoggingField:
 				oldValue = m.editConfig.EnableFileLogging
 				m.editConfig.EnableFileLogging = !m.editConfig.EnableFileLogging
@@ -581,7 +568,7 @@ func (m Model) handleEditingKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			// Check if we should auto-save after field update
 			// For URL fields, don't auto-save if basic required fields are missing
 			shouldAutoSave := true
-			if (m.activeField == OllamaURLField || m.activeField == ChromaDBURLField) && m.editConfig.ChatModel == "" {
+			if m.activeField == OllamaURLField && m.editConfig.ChatModel == "" {
 				shouldAutoSave = false
 				logger := logging.WithComponent("configuration_tab")
 				logger.Debug("Skipping auto-save for URL field change due to missing required fields",
@@ -623,10 +610,6 @@ func (m Model) handleEditingKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				logger.Info("Triggering Ollama connection test after URL change", "new_url", m.editConfig.OllamaURL)
 				m.ollamaStatus = connection.StatusChecking
 				cmd = connection.OllamaStatus(m.editConfig.OllamaURL)
-			case ChromaDBURLField:
-				logger.Info("Triggering ChromaDB connection test after URL change", "new_url", m.editConfig.ChromaDBURL)
-				m.chromaDBStatus = connection.StatusChecking
-				cmd = connection.ChromaDBStatus(m.editConfig.ChromaDBURL)
 			}
 
 			// Add the connection check command if there is one
@@ -1024,7 +1007,6 @@ func (m Model) renderConfigurationViewWithWidth(width int) string {
 		help  string
 	}{
 		{ChatModelField, "Chat Model", m.editConfig.ChatModel, "Model used for chat conversations (Enter: Select from list)"},
-		{EmbeddingModelField, "Embedding Model", m.editConfig.EmbeddingModel, "Model for embeddings (Enter: Select from list)"},
 	}
 
 	// Render anchored fields
@@ -1044,11 +1026,7 @@ func (m Model) renderConfigurationViewWithWidth(width int) string {
 		value string
 		help  string
 	}{
-		{RAGEnabledField, "RAG Enabled", fmt.Sprintf("%t", m.editConfig.RAGEnabled), "Enable Retrieval Augmented Generation (Enter/Space: Toggle)"},
 		{OllamaURLField, "Ollama URL", m.editConfig.OllamaURL, "URL of the Ollama server"},
-		{ChromaDBURLField, "ChromaDB URL", m.editConfig.ChromaDBURL, "URL of the ChromaDB server"},
-		{ChromaDBDistanceField, "ChromaDB Distance", fmt.Sprintf("%.2f", m.editConfig.ChromaDBDistance), "Distance threshold for cosine similarity (0-2 range)"},
-		{MaxDocumentsField, "Max Documents", fmt.Sprintf("%d", m.editConfig.MaxDocuments), "Maximum documents for RAG"},
 		{LogLevelField, "Log Level", m.editConfig.LogLevel, "Logging level (Enter/Space: Cycle through debug → info → warn → error)"},
 		{EnableFileLoggingField, "Enable File Logging", fmt.Sprintf("%t", m.editConfig.EnableFileLogging), "Enable logging to file (Enter/Space: Toggle)"},
 		{AgentsFileEnabledField, "AGENTS.md Detection", fmt.Sprintf("%t", m.editConfig.AgentsFileEnabled), "Automatically detect and use AGENTS.md files from working directory (Enter/Space: Toggle)"},
@@ -1154,7 +1132,7 @@ func (m Model) renderField(field Field, label, value, help string) string {
 				displayValue = displayValue[:m.cursor] + "█" + displayValue[m.cursor+1:]
 			}
 		}
-	} else if field == RAGEnabledField || field == EnableFileLoggingField || field == AgentsFileEnabledField {
+	} else if field == EnableFileLoggingField || field == AgentsFileEnabledField {
 		// Special formatting for toggle fields
 		var toggleSymbol, toggleColor string
 		if value == "true" {
@@ -1173,8 +1151,6 @@ func (m Model) renderField(field Field, label, value, help string) string {
 	switch field {
 	case OllamaURLField:
 		statusIndicator = m.formatInlineConnectionStatus(m.ollamaStatus)
-	case ChromaDBURLField:
-		statusIndicator = m.formatInlineConnectionStatus(m.chromaDBStatus)
 	}
 
 	// Format the field with status indicator if applicable
@@ -1257,18 +1233,8 @@ func (m Model) getCurrentFieldValue() string {
 	switch m.activeField {
 	case ChatModelField:
 		return m.editConfig.ChatModel
-	case EmbeddingModelField:
-		return m.editConfig.EmbeddingModel
-	case RAGEnabledField:
-		return fmt.Sprintf("%t", m.editConfig.RAGEnabled)
 	case OllamaURLField:
 		return m.editConfig.OllamaURL
-	case ChromaDBURLField:
-		return m.editConfig.ChromaDBURL
-	case ChromaDBDistanceField:
-		return fmt.Sprintf("%.2f", m.editConfig.ChromaDBDistance)
-	case MaxDocumentsField:
-		return fmt.Sprintf("%d", m.editConfig.MaxDocuments)
 	case DefaultSystemPromptField:
 		return m.editConfig.DefaultSystemPrompt
 	case LogLevelField:
@@ -1287,18 +1253,8 @@ func (m Model) getFieldName(field Field) string {
 	switch field {
 	case ChatModelField:
 		return "chat_model"
-	case EmbeddingModelField:
-		return "embedding_model"
-	case RAGEnabledField:
-		return "rag_enabled"
 	case OllamaURLField:
 		return "ollama_url"
-	case ChromaDBURLField:
-		return "chromadb_url"
-	case ChromaDBDistanceField:
-		return "chromadb_distance"
-	case MaxDocumentsField:
-		return "max_documents"
 	case DefaultSystemPromptField:
 		return "default_system_prompt"
 	case LogLevelField:
@@ -1325,22 +1281,6 @@ func (m Model) setCurrentFieldValue(value string) error {
 		m.editConfig.ChatModel = strings.TrimSpace(value)
 		logger.Info("Chat model changed", "old_value", oldValue, "new_value", m.editConfig.ChatModel)
 
-	case EmbeddingModelField:
-		// Allow empty embedding model when RAG is disabled
-		oldValue := m.editConfig.EmbeddingModel
-		m.editConfig.EmbeddingModel = strings.TrimSpace(value)
-		logger.Info("Embedding model changed", "old_value", oldValue, "new_value", m.editConfig.EmbeddingModel)
-
-	case RAGEnabledField:
-		ragEnabled, err := strconv.ParseBool(strings.TrimSpace(value))
-		if err != nil {
-			logger.Error("Invalid RAG enabled value", "value", value, "error", err)
-			return fmt.Errorf("RAG enabled must be true or false")
-		}
-		oldValue := m.editConfig.RAGEnabled
-		m.editConfig.RAGEnabled = ragEnabled
-		logger.Info("RAG enabled changed", "old_value", oldValue, "new_value", m.editConfig.RAGEnabled)
-
 	case OllamaURLField:
 		if strings.TrimSpace(value) == "" {
 			return fmt.Errorf("ollama URL cannot be empty")
@@ -1349,48 +1289,20 @@ func (m Model) setCurrentFieldValue(value string) error {
 		m.editConfig.OllamaURL = strings.TrimSpace(value)
 		logger.Info("Ollama URL changed", "old_value", oldValue, "new_value", m.editConfig.OllamaURL)
 
-	case ChromaDBURLField:
-		if strings.TrimSpace(value) == "" {
-			return fmt.Errorf("ChromaDB URL cannot be empty")
-		}
-		oldValue := m.editConfig.ChromaDBURL
-		m.editConfig.ChromaDBURL = strings.TrimSpace(value)
-		logger.Info("ChromaDB URL changed", "old_value", oldValue, "new_value", m.editConfig.ChromaDBURL)
-
-	case ChromaDBDistanceField:
-		distance, err := strconv.ParseFloat(strings.TrimSpace(value), 64)
-		if err != nil {
-			logger.Error("Invalid ChromaDB distance value", "value", value, "error", err)
-			return fmt.Errorf("ChromaDB distance must be a number")
-		}
-		if distance < 0 || distance > 2 {
-			logger.Error("ChromaDB distance out of range", "value", distance)
-			return fmt.Errorf("ChromaDB distance must be between 0.0 and 2.0")
-		}
-		oldValue := m.editConfig.ChromaDBDistance
-		m.editConfig.ChromaDBDistance = distance
-		logger.Info("ChromaDB distance changed", "old_value", oldValue, "new_value", m.editConfig.ChromaDBDistance)
-
-	case MaxDocumentsField:
-		maxDocs, err := strconv.Atoi(strings.TrimSpace(value))
-		if err != nil {
-			logger.Error("Invalid max documents value", "value", value, "error", err)
-			return fmt.Errorf("max documents must be a number")
-		}
-		// Allow 0 max documents when RAG is disabled
-		if maxDocs < 0 {
-			logger.Error("Max documents cannot be negative", "value", maxDocs)
-			return fmt.Errorf("max documents must be 0 or greater")
-		}
-		oldValue := m.editConfig.MaxDocuments
-		m.editConfig.MaxDocuments = maxDocs
-		logger.Info("Max documents changed", "old_value", oldValue, "new_value", m.editConfig.MaxDocuments)
-
 	case DefaultSystemPromptField:
 		// Allow empty system prompt, but trim whitespace
 		oldValue := m.editConfig.DefaultSystemPrompt
-		m.editConfig.DefaultSystemPrompt = strings.TrimSpace(value)
-		logger.Info("Default system prompt changed", "old_length", len(oldValue), "new_length", len(m.editConfig.DefaultSystemPrompt))
+		newValue := strings.TrimSpace(value)
+		m.editConfig.DefaultSystemPrompt = newValue
+		
+		// Save system prompt to file using the new method
+		if err := m.config.SetSystemPrompt(newValue); err != nil {
+			logger.Error("Failed to save system prompt to file", "error", err)
+			// Don't fail the field setting, but log the error
+			// The value will still be saved to the editConfig for UI purposes
+		}
+		
+		logger.Info("Default system prompt changed", "old_length", len(oldValue), "new_length", len(newValue))
 
 	case LogLevelField:
 		// LogLevel is now handled by cycling, but keep validation for programmatic use
@@ -1451,24 +1363,14 @@ func (m *Model) syncEditConfigWithMain() {
 	// Preserve the current edit values for fields that might be different
 	editValues := struct {
 		chatModel           string
-		embeddingModel      string
-		ragEnabled          bool
 		ollamaURL           string
-		chromaDBURL         string
-		chromaDBDistance    float64
-		maxDocuments        int
 		defaultSystemPrompt string
 		logLevel            string
 		enableFileLogging   bool
 		agentsFileEnabled   bool
 	}{
 		chatModel:           m.editConfig.ChatModel,
-		embeddingModel:      m.editConfig.EmbeddingModel,
-		ragEnabled:          m.editConfig.RAGEnabled,
 		ollamaURL:           m.editConfig.OllamaURL,
-		chromaDBURL:         m.editConfig.ChromaDBURL,
-		chromaDBDistance:    m.editConfig.ChromaDBDistance,
-		maxDocuments:        m.editConfig.MaxDocuments,
 		defaultSystemPrompt: m.editConfig.DefaultSystemPrompt,
 		logLevel:            m.editConfig.LogLevel,
 		enableFileLogging:   m.editConfig.EnableFileLogging,
@@ -1480,12 +1382,7 @@ func (m *Model) syncEditConfigWithMain() {
 
 	// Restore the edited values
 	m.editConfig.ChatModel = editValues.chatModel
-	m.editConfig.EmbeddingModel = editValues.embeddingModel
-	m.editConfig.RAGEnabled = editValues.ragEnabled
 	m.editConfig.OllamaURL = editValues.ollamaURL
-	m.editConfig.ChromaDBURL = editValues.chromaDBURL
-	m.editConfig.ChromaDBDistance = editValues.chromaDBDistance
-	m.editConfig.MaxDocuments = editValues.maxDocuments
 	m.editConfig.DefaultSystemPrompt = editValues.defaultSystemPrompt
 	m.editConfig.LogLevel = editValues.logLevel
 	m.editConfig.EnableFileLogging = editValues.enableFileLogging

@@ -137,6 +137,7 @@ func TestService_UpdateConfig(t *testing.T) {
 }
 
 func TestService_UpdateSelectedCollections_AutoSelect(t *testing.T) {
+	ctx := t.Context()
 	config := &configuration.Config{
 		RAGEnabled: true,
 	}
@@ -152,7 +153,7 @@ func TestService_UpdateSelectedCollections_AutoSelect(t *testing.T) {
 	service.connected = false
 
 	emptyMap := make(map[string]bool)
-	service.UpdateSelectedCollections(emptyMap)
+	service.UpdateSelectedCollections(ctx, emptyMap)
 
 	if len(service.selectedCollections) != 0 {
 		t.Error("Expected collections to be cleared when not connected and empty map provided")
@@ -165,7 +166,7 @@ func TestService_UpdateSelectedCollections_AutoSelect(t *testing.T) {
 		"collection3": true,
 	}
 
-	service.UpdateSelectedCollections(explicitMap)
+	service.UpdateSelectedCollections(ctx, explicitMap)
 
 	if len(service.selectedCollections) != 2 {
 		t.Errorf("Expected 2 collections to be selected, got %d", len(service.selectedCollections))

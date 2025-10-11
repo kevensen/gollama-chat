@@ -144,7 +144,7 @@ func (s *Service) Initialize(ctx context.Context) error {
 }
 
 // UpdateSelectedCollections updates the list of selected collections
-func (s *Service) UpdateSelectedCollections(selectedCollections map[string]bool) {
+func (s *Service) UpdateSelectedCollections(ctx context.Context, selectedCollections map[string]bool) {
 	logger := logging.WithComponent("rag")
 
 	// If no collections are specifically selected (empty map), auto-select all available collections
@@ -153,7 +153,6 @@ func (s *Service) UpdateSelectedCollections(selectedCollections map[string]bool)
 
 		// Only auto-select if we have a connected client
 		if s.connected && s.client != nil {
-			ctx := context.Background()
 			collections, err := s.client.ListCollections(ctx)
 			if err != nil {
 				logger.Warn("Failed to auto-load collections, keeping existing selections", "error", err.Error())

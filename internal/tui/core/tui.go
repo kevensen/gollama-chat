@@ -83,7 +83,7 @@ func NewModel(ctx context.Context, config *configuration.Config) *Model {
 		mcpManager:     sharedMCPManager,
 		agentsDetector: agentsDetector,
 		activeTab:      ChatTab,
-		tabs:           []string{"Chat", "Settings", "RAG Collections", "Tools", "MCP Servers"},
+		tabs:           []string{"Chat", "Settings", "RAG", "Tools", "MCP Servers"},
 		chatModel:      chat.NewModelWithAgents(ctx, config, agentsFile),
 		configModel:    configTab.NewModel(config),
 		ragModel:       ragTab.NewModel(ctx, config),
@@ -419,7 +419,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 
 			// Update the chat model with the new configuration (handles system prompt precedence)
-			m.chatModel.UpdateFromConfiguration(configMsg.Config)
+			m.chatModel.UpdateFromConfiguration(m.ctx, configMsg.Config)
 
 			// Update the RAG model with the new configuration
 			ragModel, ragCmd := m.ragModel.Update(configMsg)
@@ -440,7 +440,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// Update the chat model's RAG service
 			ragService := m.chatModel.GetRAGService()
 			if ragService != nil {
-				ragService.UpdateSelectedCollections(selectedCollectionsMap)
+				ragService.UpdateSelectedCollections(m.ctx, selectedCollectionsMap)
 				logger.Info("Updated RAG service with selected collections",
 					"collections_map", selectedCollectionsMap)
 			} else {
@@ -588,7 +588,7 @@ func (m Model) renderTabBar() string {
 	var tabNames []string
 	if m.width >= 40 {
 		// Full tab names for reasonable width
-		tabNames = []string{"Chat", "Settings", "RAG Collections", "Tools", "MCP Servers"}
+		tabNames = []string{"Chat", "Settings", "RAG", "Tools", "MCP Servers"}
 	} else if m.width >= 20 {
 		// Medium names for moderate width
 		tabNames = []string{"Chat", "Config", "RAG", "Tools", "MCP"}
@@ -726,7 +726,7 @@ func (m *Model) syncRAGCollections() {
 
 	// Update the chat model's RAG service with the selected collections
 	if ragService != nil {
-		ragService.UpdateSelectedCollections(selectedCollectionsMap)
+		ragService.UpdateSelectedCollections(m.ctx, selectedCollectionsMap)
 		logger.Info("Updated RAG service with collections from RAG tab",
 			"collections_map", selectedCollectionsMap)
 	} else {

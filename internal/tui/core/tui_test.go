@@ -28,7 +28,7 @@ func TestNewModel(t *testing.T) {
 		t.Error("Active tab should default to ChatTab")
 	}
 
-	expectedTabs := []string{"Chat", "Settings", "RAG Collections", "Tools", "MCP Servers"}
+	expectedTabs := []string{"Chat", "Settings", "RAG", "Tools", "MCP Servers"}
 	if len(model.tabs) != len(expectedTabs) {
 		t.Errorf("Expected %d tabs, got %d", len(expectedTabs), len(model.tabs))
 	}
@@ -453,7 +453,7 @@ func TestModel_RenderTabBar(t *testing.T) {
 			name:          "normal width",
 			width:         80,
 			activeTab:     ChatTab,
-			shouldContain: []string{"Chat", "Settings", "RAG Collections", "Tools"},
+			shouldContain: []string{"Chat", "Settings", "RAG", "Tools"},
 		},
 		{
 			name:          "narrow width",

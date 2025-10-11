@@ -1377,7 +1377,7 @@ func (m Model) denyToolExecution() (tea.Model, tea.Cmd) {
 
 // UpdateFromConfiguration updates the session system prompt from configuration changes
 // but only if the session prompt has not been manually modified
-func (m *Model) UpdateFromConfiguration(newConfig *configuration.Config) {
+func (m *Model) UpdateFromConfiguration(ctx context.Context, newConfig *configuration.Config) {
 	logger := logging.WithComponent("chat")
 
 	// Always log when this method is called
@@ -1424,7 +1424,7 @@ func (m *Model) UpdateFromConfiguration(newConfig *configuration.Config) {
 			m.ragService.UpdateConfig(newConfig)
 
 			// Update selected collections
-			m.ragService.UpdateSelectedCollections(newConfig.SelectedCollections)
+			m.ragService.UpdateSelectedCollections(ctx, newConfig.SelectedCollections)
 
 			// If RAG is enabled, reinitialize the service to pick up new settings
 			if newConfig.RAGEnabled {
