@@ -27,6 +27,7 @@ type Config struct {
 	MaxDocuments        int             `json:"maxDocuments"`
 	SelectedCollections map[string]bool `json:"selectedCollections"`
 	// DefaultSystemPrompt is deprecated - system prompt is now stored in SYSTEM_PROMPT.md
+	// TODO: Remove DefaultSystemPrompt field after migration period (target: 2024-12-31)
 	DefaultSystemPrompt string          `json:"defaultSystemPrompt,omitempty"` // Keep for migration
 	ToolTrustLevels     map[string]int  `json:"toolTrustLevels"`   // Maps tool name to trust level: 0=None(block), 1=Ask(prompt), 2=Session(allow)
 	MCPServers          []MCPServer     `json:"mcpServers"`        // MCP server configurations
