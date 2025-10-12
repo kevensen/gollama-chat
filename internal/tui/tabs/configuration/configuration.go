@@ -278,7 +278,7 @@ func (m Model) handleNavigationKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			if !m.systemPromptEditMode {
 				m.systemPromptEditMode = true
 				m.systemPromptEditInput = m.editConfig.DefaultSystemPrompt
-				m.systemPromptEditCursor = 0 // Start at beginning of text
+				m.systemPromptEditCursor = len(m.editConfig.DefaultSystemPrompt) // Start at end of text
 				m.systemPromptScrollY = 0    // Reset scroll when entering edit mode
 			}
 			return m, nil
