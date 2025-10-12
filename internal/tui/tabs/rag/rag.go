@@ -68,15 +68,15 @@ type Model struct {
 	width              int
 	height             int
 	ctx                context.Context
-	
+
 	// Two-pane edit mode state
-	editMode           bool   // true when in edit mode (Ctrl+E), false in view mode
-	activePane         ActivePane // which pane is currently active (settings or collections)
-	activeConfigField  ConfigurationField
-	editingConfig      bool   // true when editing a specific config field
-	configInput        string // input text when editing config fields
-	configCursor       int    // cursor position in config input
-	configMessage      string // message for config operations
+	editMode          bool       // true when in edit mode (Ctrl+E), false in view mode
+	activePane        ActivePane // which pane is currently active (settings or collections)
+	activeConfigField ConfigurationField
+	editingConfig     bool   // true when editing a specific config field
+	configInput       string // input text when editing config fields
+	configCursor      int    // cursor position in config input
+	configMessage     string // message for config operations
 }
 
 // NewModel creates a new RAG collections model
@@ -105,7 +105,7 @@ func NewModel(ctx context.Context, config *configuration.Config) Model {
 		connected:          false,
 		loading:            true,
 		ctx:                ctx,
-		editMode:           false, // Start in view mode
+		editMode:           false,        // Start in view mode
 		activePane:         SettingsPane, // Start with settings pane
 		activeConfigField:  RAGEnabledField,
 		editingConfig:      false,
@@ -331,20 +331,20 @@ func (m Model) View() string {
 
 	// Calculate pane widths (split roughly in half with some padding)
 	paneWidth := (m.width - 6) / 2 // Account for borders and padding
-	
+
 	leftPaneStyle := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(lipgloss.Color("#8A7FD8")).
 		Padding(1, 1).
 		Width(paneWidth).
-		Height(contentHeight - 8) // Account for title and instructions
+		Height(contentHeight - 5) // Account for title and instructions
 
 	rightPaneStyle := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(lipgloss.Color("#8A7FD8")).
 		Padding(1, 1).
 		Width(paneWidth).
-		Height(contentHeight - 8)
+		Height(contentHeight - 5)
 
 	// Highlight active pane when in edit mode
 	if m.editMode {
@@ -460,7 +460,7 @@ func (m Model) renderCollectionsPane() string {
 		content.WriteString(m.viewport.View())
 	}
 
-	// Instructions based on mode  
+	// Instructions based on mode
 	if m.editMode && m.activePane == CollectionsPane && m.connected && !m.loading {
 		content.WriteString("\n\n")
 		instructionsStyle := lipgloss.NewStyle().
@@ -512,7 +512,7 @@ func (m Model) renderConfigField(field ConfigurationField, label, value, help st
 		if isEditing {
 			// Show input field with cursor
 			labelStyle = labelStyle.Foreground(lipgloss.Color("4")).Bold(true)
-			
+
 			// Show input with cursor
 			inputText := m.configInput
 			if m.configCursor < len(inputText) {
@@ -689,7 +689,7 @@ func (m Model) handleConfigurationKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		case RAGEnabledField:
 			// Toggle RAG enabled
 			m.editConfig.RAGEnabled = !m.editConfig.RAGEnabled
-			
+
 			// Auto-populate defaults when enabling RAG
 			if m.editConfig.RAGEnabled {
 				if m.editConfig.EmbeddingModel == "" {
@@ -699,7 +699,7 @@ func (m Model) handleConfigurationKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 					m.editConfig.ChromaDBURL = "http://localhost:8000"
 				}
 			}
-			
+
 			return m, m.saveConfiguration()
 		default:
 			// Start editing other fields
@@ -730,7 +730,7 @@ func (m Model) handleViewModeKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// handleCollectionsKeys handles key input when in collections mode  
+// handleCollectionsKeys handles key input when in collections mode
 func (m Model) handleCollectionsKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "up", "k":
@@ -896,12 +896,12 @@ func (m Model) saveConfiguration() tea.Cmd {
 		m.config.ChromaDBURL = m.editConfig.ChromaDBURL
 		m.config.ChromaDBDistance = m.editConfig.ChromaDBDistance
 		m.config.MaxDocuments = m.editConfig.MaxDocuments
-		
+
 		// Save to file
 		if err := m.config.Save(); err != nil {
 			return ConfigUpdatedMsg{Config: m.config} // Still update even if save failed
 		}
-		
+
 		return ConfigUpdatedMsg{Config: m.config}
 	})
 }

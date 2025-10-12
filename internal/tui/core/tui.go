@@ -182,6 +182,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tea.KeyMsg:
 		logger := logging.WithComponent("tui-core")
+		// Debug ALL keys to see what we're actually receiving
+		logger.Debug("Key received", "key", msg.String(), "type", msg.Type, "runes", msg.Runes, "alt", msg.Alt)
+		
+		// Debug all keys to see if Page Up/Down reach the main TUI
+		if msg.String() == "pgup" || msg.String() == "pgdown" || msg.String() == "page_up" || msg.String() == "page_down" {
+			logger.Debug("Page Up/Down key received in main TUI", "key", msg.String(), "active_tab", m.activeTab)
+		}
+		
 		switch msg.String() {
 		case "ctrl+c":
 			logger.Info("User requested quit")
@@ -192,6 +200,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				mcpModel, mcpCmd := m.mcpModel.Update(msg)
 				m.mcpModel = mcpModel
 				return m, mcpCmd
+			}
+
+			// Check if Config tab is active and in system prompt edit mode - if so, let it handle tab for indentation
+			if m.activeTab == ConfigTab && m.configModel.IsInSystemPromptEditMode() {
+				configModel, configCmd := m.configModel.Update(msg)
+				m.configModel = configModel.(configTab.Model)
+				return m, configCmd
 			}
 
 			// Switch tabs
@@ -255,6 +270,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				mcpModel, mcpCmd := m.mcpModel.Update(msg)
 				m.mcpModel = mcpModel
 				return m, mcpCmd
+			}
+
+			// Check if Config tab is active and in system prompt edit mode - if so, let it handle shift+tab for indentation
+			if m.activeTab == ConfigTab && m.configModel.IsInSystemPromptEditMode() {
+				configModel, configCmd := m.configModel.Update(msg)
+				m.configModel = configModel.(configTab.Model)
+				return m, configCmd
 			}
 
 			// Switch tabs in reverse

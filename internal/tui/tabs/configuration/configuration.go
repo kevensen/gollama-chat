@@ -260,6 +260,10 @@ func (m Model) handleNavigationKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	// If system prompt panel is visible, handle it
 	if m.showSystemPromptPanel {
+		// Add debug logging for ALL keys received in system prompt panel
+		logger := logging.WithComponent("system_prompt_keys")
+		logger.Debug("Key received in system prompt panel", "key", msg.String(), "type", msg.Type, "edit_mode", m.systemPromptEditMode)
+
 		switch msg.String() {
 		case "esc":
 			// Close system prompt panel
@@ -274,8 +278,8 @@ func (m Model) handleNavigationKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			if !m.systemPromptEditMode {
 				m.systemPromptEditMode = true
 				m.systemPromptEditInput = m.editConfig.DefaultSystemPrompt
-				m.systemPromptEditCursor = len([]rune(m.systemPromptEditInput))
-				m.systemPromptScrollY = 0 // Reset scroll when entering edit mode
+				m.systemPromptEditCursor = 0 // Start at beginning of text
+				m.systemPromptScrollY = 0    // Reset scroll when entering edit mode
 			}
 			return m, nil
 		case "ctrl+s":
@@ -301,6 +305,61 @@ func (m Model) handleNavigationKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				}
 				return m, updateCmd
 			}
+			return m, nil
+		}
+
+		// Handle scrolling in both edit and view modes (process BEFORE text editing)
+		switch msg.String() {
+		case "pgup", "page_up", "ctrl+u":
+			// Scroll up in the panel
+			oldScrollY := m.systemPromptScrollY
+			if m.systemPromptScrollY > 0 {
+				m.systemPromptScrollY -= 5
+				if m.systemPromptScrollY < 0 {
+					m.systemPromptScrollY = 0
+				}
+			}
+			logger.Debug("Page up scrolling", "old_scroll", oldScrollY, "new_scroll", m.systemPromptScrollY)
+			return m, nil
+		case "pgdown", "page_down", "ctrl+d":
+			// Scroll down in the panel - calculate max scroll first
+			textAreaHeight := m.height - 12
+			if textAreaHeight < 5 {
+				textAreaHeight = 5
+			}
+
+			textWidth := (m.width / 3) - 6
+			if textWidth < 20 {
+				textWidth = 20
+			}
+
+			var displayText string
+			if m.systemPromptEditMode {
+				displayText = m.systemPromptEditInput
+			} else {
+				displayText = m.editConfig.DefaultSystemPrompt
+			}
+
+			displayTextWithIndicators := m.renderVisibleChars(displayText)
+			lines := m.wrapText(displayTextWithIndicators, textWidth)
+
+			maxScroll := len(lines) - textAreaHeight
+			if maxScroll < 0 {
+				maxScroll = 0
+			}
+
+			oldScrollY := m.systemPromptScrollY
+			m.systemPromptScrollY += 5
+			if m.systemPromptScrollY > maxScroll {
+				m.systemPromptScrollY = maxScroll
+			}
+
+			logger.Debug("Page down scrolling",
+				"old_scroll", oldScrollY,
+				"new_scroll", m.systemPromptScrollY,
+				"max_scroll", maxScroll,
+				"total_lines", len(lines),
+				"text_area_height", textAreaHeight)
 			return m, nil
 		}
 
@@ -394,24 +453,6 @@ func (m Model) handleNavigationKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				}
 				return m, nil
 			}
-		}
-
-		// Allow scrolling in both edit and view modes
-		switch msg.String() {
-		case "page_up", "ctrl+u":
-			// Scroll up in the panel
-			if m.systemPromptScrollY > 0 {
-				m.systemPromptScrollY -= 5
-				if m.systemPromptScrollY < 0 {
-					m.systemPromptScrollY = 0
-				}
-			}
-			return m, nil
-		case "page_down", "ctrl+d":
-			// Scroll down in the panel
-			m.systemPromptScrollY += 5
-			// Max scroll will be validated in render function
-			return m, nil
 		}
 
 		// If not in edit mode, ignore text input keys
@@ -849,28 +890,62 @@ func (m Model) renderSystemPromptPanel(width int) string {
 	// Add the text area content
 	content = append(content, displayLines...)
 
-	// Add scroll indicator if there's more content
+	// Calculate available space for help text positioning
+	// Panel total height is m.height + 2, with border (2) and padding (2), so content area is m.height - 2
+	// We want help text anchored at the very bottom of the content area
+	totalContentHeight := m.height - 2
+	
+	// Count current content lines
+	currentContentLines := len(content)
+	
+	// Prepare scroll indicator if there's more content
+	var scrollInfo string
+	hasScrollInfo := false
 	if len(lines) > textAreaHeight {
-		content = append(content, "")
-		scrollInfo := fmt.Sprintf("Line %d-%d of %d",
+		// Calculate the correct end line for display
+		actualEndLine := min(m.systemPromptScrollY+textAreaHeight, len(lines))
+		scrollInfo = fmt.Sprintf("Line %d-%d of %d",
 			m.systemPromptScrollY+1,
-			min(m.systemPromptScrollY+textAreaHeight, len(lines)),
+			actualEndLine,
 			len(lines))
+		hasScrollInfo = true
+	}
+	
+	// Calculate total lines needed for bottom elements
+	helpLines := 2 // Two help text lines
+	scrollLines := 0
+	if hasScrollInfo {
+		scrollLines = 1 // Just the scroll info line (no extra empty line)
+	}
+	
+	// Calculate padding needed to position scroll info and help text at bottom
+	bottomElementsLines := helpLines + scrollLines
+	totalUsedLines := currentContentLines + bottomElementsLines
+	paddingNeeded := totalContentHeight - totalUsedLines
+	
+	// Add padding to push bottom elements to the bottom
+	if paddingNeeded > 0 {
+		for i := 0; i < paddingNeeded; i++ {
+			content = append(content, "")
+		}
+	}
+	
+	// Add scroll indicator just above help text (if needed)
+	if hasScrollInfo {
 		scrollStyle := lipgloss.NewStyle().
 			Foreground(lipgloss.Color("240")).
 			Align(lipgloss.Right)
 		content = append(content, scrollStyle.Render(scrollInfo))
 	}
 
-	// Help text
-	content = append(content, "")
+	// Help text at the bottom
 	helpStyle := lipgloss.NewStyle().
 		Foreground(lipgloss.Color("240")).
 		Italic(true)
 
 	if m.systemPromptEditMode {
-		content = append(content, helpStyle.Render("Arrow Keys: Navigate • Enter: New Line • Tab: Indent"))
-		content = append(content, helpStyle.Render("PgUp/PgDn: Scroll • Ctrl+S: Save & Exit Edit Mode • Esc: Close Panel"))
+		content = append(content, helpStyle.Render("PgUp/PgDn: Scroll • Ctrl+S: Save & Exit Edit Mode"))
+		content = append(content, helpStyle.Render("Esc: Close Panel without Saving"))
 	} else {
 		content = append(content, helpStyle.Render("PgUp/PgDn: Scroll • Ctrl+E: Enter Edit Mode"))
 		content = append(content, helpStyle.Render("Esc: Close Panel"))
@@ -1589,6 +1664,8 @@ func (m *Model) ensureCursorVisible() {
 		return
 	}
 
+	logger := logging.WithComponent("system_prompt_cursor")
+
 	// Use the original text with indicators for line calculation
 	originalText := m.systemPromptEditInput
 	displayTextWithIndicators := m.renderVisibleChars(originalText)
@@ -1607,12 +1684,14 @@ func (m *Model) ensureCursorVisible() {
 	displayCursor := m.convertCursorToDisplayPosition(originalText, m.systemPromptEditCursor)
 
 	for i, line := range lines {
-		if charCount+len(line) >= displayCursor {
+		lineLength := len([]rune(line))
+		if charCount+lineLength >= displayCursor {
 			cursorLine = i
 			break
 		}
-		charCount += len(line)
-		if charCount < len(displayTextWithIndicators) && displayTextWithIndicators[charCount] == '\n' {
+		charCount += lineLength
+		// Account for newline character if not at end
+		if i < len(lines)-1 {
 			charCount++
 		}
 	}
@@ -1623,17 +1702,39 @@ func (m *Model) ensureCursorVisible() {
 		textAreaHeight = 5
 	}
 
+	// Calculate max scroll to ensure we can see the end of text
+	maxScroll := len(lines) - textAreaHeight
+	if maxScroll < 0 {
+		maxScroll = 0
+	}
+
+	oldScrollY := m.systemPromptScrollY
+
 	// Adjust scroll to keep cursor visible
 	if cursorLine < m.systemPromptScrollY {
+		// Cursor is above visible area - scroll up
 		m.systemPromptScrollY = cursorLine
 	} else if cursorLine >= m.systemPromptScrollY+textAreaHeight {
+		// Cursor is below visible area - scroll down
 		m.systemPromptScrollY = cursorLine - textAreaHeight + 1
 	}
 
-	// Ensure scroll doesn't go negative
+	// Ensure scroll doesn't go negative or exceed maximum
 	if m.systemPromptScrollY < 0 {
 		m.systemPromptScrollY = 0
 	}
+	if m.systemPromptScrollY > maxScroll {
+		m.systemPromptScrollY = maxScroll
+	}
+
+	logger.Debug("Cursor visibility adjusted",
+		"cursor_pos", m.systemPromptEditCursor,
+		"cursor_line", cursorLine,
+		"old_scroll", oldScrollY,
+		"new_scroll", m.systemPromptScrollY,
+		"max_scroll", maxScroll,
+		"total_lines", len(lines),
+		"text_area_height", textAreaHeight)
 } // convertCursorToDisplayPosition converts cursor position from original text to display text
 func (m Model) convertCursorToDisplayPosition(originalText string, cursorPos int) int {
 	if cursorPos <= 0 {
@@ -1719,4 +1820,9 @@ func min(a, b int) int {
 		return a
 	}
 	return b
+}
+
+// IsInSystemPromptEditMode returns true if the system prompt panel is visible and in edit mode
+func (m Model) IsInSystemPromptEditMode() bool {
+	return m.showSystemPromptPanel && m.systemPromptEditMode
 }
