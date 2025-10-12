@@ -60,59 +60,6 @@ chmod u+x <path to binary>
 ```
 xattr -d com.apple.quarantine <path to binary>
 ```
-#### Web Mode (using GoTTY)
-```bash
-# Install GoTTY (one time setup)
-go install github.com/sorenisanerd/gotty@latest
-
-# Run with GoTTY web terminal
-make gotty
-
-# Or run manually
-gotty -w ./bin/gollama-chat
-```
-
-Then open your browser to `http://localhost:8080` to access the TUI through a web terminal interface.
-
-**Web Mode Features:**
-- Access the full TUI interface through any modern web browser
-- Powered by [GoTTY](https://github.com/sorenisanerd/gotty) for excellent terminal emulation
-- Perfect Unicode support including beautiful rounded borders
-- Useful for remote access or when running in containerized environments  
-- All TUI features work identically in web mode
-
-#### Docker Mode
-
-##### Using Pre-built Images
-```bash
-# Use the latest pre-built image from GitHub Container Registry
-docker run -p 8080:8080 -v gollama-config:/home/appuser/.local/share/gollama-chat/settings ghcr.io/kevensen/gollama-chat:latest
-
-# Use docker compose with pre-built image
-docker compose up
-
-# Or see docker-compose.example.yml for a complete setup with Ollama
-docker compose -f docker-compose.example.yml up
-```
-
-##### Building Locally
-```bash
-# Build and run with Docker
-docker build -t gollama-chat .
-docker run -p 8080:8080 -v gollama-config:/home/appuser/.local/share/gollama-chat/settings gollama-chat
-
-# Or use docker compose to build locally
-docker compose up --build
-```
-
-**Docker Features:**
-- Multi-platform support (amd64, arm64)
-- Alpine-based lightweight container  
-- Built-in GoTTY web terminal on port 8080
-- Persistent configuration via volume mounts
-- Health checks included
-- Non-root user for security
-- Automated builds via GitHub Actions
 
 ### Command Line Options
 
@@ -121,16 +68,12 @@ gollama-chat [options]
 
 Options:
   -h                Show help
-  -child            Internal flag for PTY mode (used by GoTTY)
 ```
 
 Examples:
 ```bash
-# Run in terminal mode (default)
+# Run in terminal mode
 ./gollama-chat
-
-# Run with GoTTY for web access
-gotty -w ./bin/gollama-chat
 ```
 
 ### Configuration
@@ -188,128 +131,6 @@ Default configuration:
 | `maxDocuments` | Maximum documents to retrieve for RAG | `5` |
 | `selectedCollections` | Selected collections for RAG queries | `{}` |
 | `defaultSystemPrompt` | Default system prompt for conversations | (See configuration example) |
-
-## Docker Usage
-
-gollama-chat provides full Docker support with a multi-stage Alpine-based container that includes GoTTY for web terminal access.
-
-### Quick Start with Docker
-
-```bash
-# Build the Docker image
-docker build -t gollama-chat .
-
-# Run with volume for persistent configuration
-docker run -p 8080:8080 \
-  -v gollama-config:/home/appuser/.local/share/gollama-chat/settings \
-  gollama-chat
-
-# Or use docker-compose (recommended)
-docker-compose up --build
-```
-
-Access the application at `http://localhost:8080` in your web browser.
-
-### Docker Compose (Recommended)
-
-The included `docker-compose.yml` provides the simplest setup:
-
-```yaml
-services:
-  gollama-chat:
-    build: .
-    ports:
-      - "8080:8080"
-    volumes:
-      - gollama-config:/home/appuser/.local/share/gollama-chat/settings
-    healthcheck:
-      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 5s
-
-volumes:
-  gollama-config:
-```
-
-Run with:
-```bash
-docker compose up --build
-```
-
-### Docker Configuration
-
-The Docker container:
-- Uses Alpine Linux for minimal size (~50MB)
-- Runs as non-root user (`appuser`) for security
-- Includes GoTTY for excellent web terminal emulation
-- Supports full Unicode including rounded borders
-- Provides persistent configuration via volume mounts
-- Includes health checks for container orchestration
-
-### Volume Mounts
-
-The container stores configuration in `/home/appuser/.local/share/gollama-chat/settings`. Mount this directory to persist settings:
-
-```bash
-# Named volume (recommended)
-docker run -v gollama-config:/home/appuser/.local/share/gollama-chat/settings gollama-chat
-
-# Bind mount to host directory
-docker run -v ~/.local/share/gollama-chat/settings:/home/appuser/.local/share/gollama-chat/settings gollama-chat
-```
-
-### Building Custom Images
-
-```bash
-# Build with custom tag
-docker build -t my-gollama-chat:latest .
-
-# Build with specific Go version
-docker build --build-arg GO_VERSION=1.24.4 -t gollama-chat .
-
-# Multi-platform build (requires buildx)
-docker buildx build --platform linux/amd64,linux/arm64 -t gollama-chat .
-```
-
-### Docker Environment
-
-The container provides:
-- **Port 8080**: GoTTY web terminal interface
-- **Working Directory**: `/app`
-- **User**: `appuser` (non-root, UID 1000)
-- **Config Path**: `/home/appuser/.local/share/gollama-chat/settings`
-- **Health Check**: HTTP endpoint on port 8080
-
-### Troubleshooting Docker
-
-**Container won't start:**
-```bash
-# Check logs
-docker logs <container-id>
-
-# Run with debug output
-docker run -it gollama-chat sh
-```
-
-**Configuration not persisting:**
-```bash
-# Verify volume mount
-docker inspect <container-id> | grep -A 10 Mounts
-
-# Check volume contents
-docker run --rm -v gollama-config:/data alpine ls -la /data
-```
-
-**Web interface not accessible:**
-```bash
-# Check port mapping
-docker ps
-
-# Test health check manually
-docker exec <container-id> wget -qO- http://localhost:8080
-```
 
 ## Project Structure
 
@@ -387,54 +208,6 @@ make run
 
 ```bash
 make dev  # Runs fmt, vet, test, and build
-```
-
-### Docker Development
-
-```bash
-# Build and test Docker image
-make docker-build
-docker run -p 8080:8080 gollama-chat
-
-# Development with volume mount for live config changes
-docker run -p 8080:8080 \
-  -v $(pwd)/config:/home/appuser/.local/share/gollama-chat/settings \
-  gollama-chat
-
-# Clean up Docker resources
-docker system prune -f
-```
-
-### Docker Registry & Multi-Platform Builds
-
-The project includes GitHub Actions workflows for automated multi-platform Docker builds to GitHub Container Registry. See [DOCKER-REGISTRY-SETUP.md](DOCKER-REGISTRY-SETUP.md) for detailed information on:
-
-- Understanding the automated build process
-- Using pre-built multi-platform images
-- Image tagging strategy
-- Troubleshooting builds
-
-**Quick start with pre-built images:**
-```bash
-# Use GitHub Container Registry (no setup required)
-docker run -p 8080:8080 ghcr.io/kevensen/gollama-chat:latest
-
-# Available platforms: linux/amd64, linux/arm64
-```
-
-### Local GoTTY Development
-
-For testing web terminal functionality without Docker:
-
-```bash
-# Install GoTTY if not already installed
-go install github.com/sorenisanerd/gotty@latest
-
-# Run with GoTTY
-make gotty
-
-# Or manually with custom options
-gotty -w --title-format "gollama-chat" ./bin/gollama-chat
 ```
 
 ### Testing
