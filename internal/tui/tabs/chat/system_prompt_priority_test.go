@@ -36,7 +36,7 @@ func TestSystemPromptPriorityLogic(t *testing.T) {
 		ToolTrustLevels:     make(map[string]int),
 	}
 
-	model.UpdateFromConfiguration(newConfig)
+	model.UpdateFromConfiguration(ctx, newConfig)
 
 	if model.sessionSystemPrompt != "Updated default prompt" {
 		t.Errorf("Expected session prompt to be updated to new default, got %q", model.sessionSystemPrompt)
@@ -58,7 +58,7 @@ func TestSystemPromptPriorityLogic(t *testing.T) {
 		ToolTrustLevels:     make(map[string]int),
 	}
 
-	model.UpdateFromConfiguration(newerConfig)
+	model.UpdateFromConfiguration(ctx, newerConfig)
 
 	if model.sessionSystemPrompt != "Manually edited prompt" {
 		t.Errorf("Expected session prompt to remain manually edited, got %q", model.sessionSystemPrompt)
@@ -80,7 +80,7 @@ func TestSystemPromptPriorityLogic(t *testing.T) {
 		ToolTrustLevels:     make(map[string]int),
 	}
 
-	model.UpdateFromConfiguration(finalConfig)
+	model.UpdateFromConfiguration(ctx, finalConfig)
 
 	if model.sessionSystemPrompt != "Final default prompt" {
 		t.Errorf("Expected session prompt to be updated after manual flag reset, got %q", model.sessionSystemPrompt)

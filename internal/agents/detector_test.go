@@ -118,7 +118,7 @@ func TestDetector_DetectInDirectory(t *testing.T) {
 			if err != nil {
 				t.Fatalf("Failed to create temp dir: %v", err)
 			}
-			defer os.RemoveAll(tmpDir)
+			defer func() { _ = os.RemoveAll(tmpDir) }()
 
 			// Setup test files
 			if err := tt.setupFunc(tmpDir); err != nil {
@@ -177,7 +177,7 @@ func TestDetector_DetectInWorkingDirectory(t *testing.T) {
 				if err := os.WriteFile("AGENTS.md", []byte(content), 0644); err != nil {
 					return nil, err
 				}
-				return func() { os.Remove("AGENTS.md") }, nil
+				return func() { _ = os.Remove("AGENTS.md") }, nil
 			},
 			expectFile: false,
 		},
@@ -189,7 +189,7 @@ func TestDetector_DetectInWorkingDirectory(t *testing.T) {
 				if err := os.WriteFile("AGENTS.md", []byte(content), 0644); err != nil {
 					return nil, err
 				}
-				return func() { os.Remove("AGENTS.md") }, nil
+				return func() { _ = os.Remove("AGENTS.md") }, nil
 			},
 			expectFile: true,
 		},
@@ -328,7 +328,7 @@ func TestDetector_LoadAgentsFile(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create temp dir: %v", err)
 	}
-	defer os.RemoveAll(tmpDir)
+	defer func() { _ = os.RemoveAll(tmpDir) }()
 
 	content := "# Test AGENTS.md\n\nThis is test content for loading."
 	agentsPath := filepath.Join(tmpDir, "AGENTS.md")
@@ -375,7 +375,7 @@ func BenchmarkDetector_DetectInDirectory(b *testing.B) {
 	if err != nil {
 		b.Fatalf("Failed to create temp dir: %v", err)
 	}
-	defer os.RemoveAll(tmpDir)
+	defer func() { _ = os.RemoveAll(tmpDir) }()
 
 	content := "# Benchmark Test\n\nThis is a test file for benchmarking the detection performance."
 	if err := os.WriteFile(filepath.Join(tmpDir, "AGENTS.md"), []byte(content), 0644); err != nil {

@@ -345,8 +345,9 @@ func TestDefaultConfig(t *testing.T) {
 		t.Error("SelectedCollections should be initialized")
 	}
 
-	if config.DefaultSystemPrompt == "" {
-		t.Error("DefaultSystemPrompt should not be empty")
+	// DefaultSystemPrompt should be empty in default config since it's now loaded from SYSTEM_PROMPT.md
+	if config.DefaultSystemPrompt != "" {
+		t.Error("DefaultSystemPrompt should be empty in default config - it's now loaded from file")
 	}
 
 	if config.MCPServers == nil {

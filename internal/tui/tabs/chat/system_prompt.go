@@ -27,9 +27,15 @@ func (m Model) getSystemPromptHeight() int {
 	// Add 4 for the borders, header, and padding, plus 1 for top margin
 	promptHeight := len(lines) + 4 + 1
 
-	// Limit the system prompt height to a maximum of 1/3 of the screen height
-	// to ensure it doesn't take too much space
-	maxHeight := m.height / 3
+	// Set a minimum height when system prompt is visible to ensure it's substantial
+	minHeight := (m.height * 2) / 5 // Minimum 2/5 of screen height (40%)
+	if promptHeight < minHeight {
+		promptHeight = minHeight
+	}
+
+	// Limit the system prompt height to a maximum of 1/2 of the screen height
+	// to allow it to be about half the size of the chat pane
+	maxHeight := m.height / 2
 	if promptHeight > maxHeight {
 		promptHeight = maxHeight
 	}
@@ -86,8 +92,9 @@ func (m Model) renderSystemPrompt() string {
 	// Create a header and content
 	content := fmt.Sprintf("%s\n\n%s", header, wrappedText)
 
-	// Apply different styling based on edit mode
-	style := m.styles.systemPrompt.Width(m.width - 2).MarginTop(1)
+	// Apply different styling based on edit mode and use calculated height
+	calculatedHeight := m.getSystemPromptHeight()
+	style := m.styles.systemPrompt.Width(m.width - 2).Height(calculatedHeight).MarginTop(1)
 	if m.systemPromptEditMode {
 		// Add a visual indicator for edit mode (different border color)
 		style = style.BorderForeground(lipgloss.Color("#FFD700")) // Gold color for edit mode

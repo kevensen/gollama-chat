@@ -26,12 +26,18 @@ type Config struct {
 	ChromaDBDistance    float64         `json:"chromaDBDistance"`
 	MaxDocuments        int             `json:"maxDocuments"`
 	SelectedCollections map[string]bool `json:"selectedCollections"`
-	DefaultSystemPrompt string          `json:"defaultSystemPrompt"`
+	// DefaultSystemPrompt is deprecated - system prompt is now stored in SYSTEM_PROMPT.md
+	// TODO: Remove DefaultSystemPrompt field after migration period (target: 2024-12-31)
+	DefaultSystemPrompt string          `json:"defaultSystemPrompt,omitempty"` // Keep for migration
 	ToolTrustLevels     map[string]int  `json:"toolTrustLevels"`   // Maps tool name to trust level: 0=None(block), 1=Ask(prompt), 2=Session(allow)
 	MCPServers          []MCPServer     `json:"mcpServers"`        // MCP server configurations
 	LogLevel            string          `json:"logLevel"`          // Log level: debug, info, warn, error
 	EnableFileLogging   bool            `json:"enableFileLogging"` // Whether to log to file
 	AgentsFileEnabled   bool            `json:"agentsFileEnabled"` // Whether to automatically detect and use AGENTS.md files
+	
+	// systemPrompt is the cached system prompt content from SYSTEM_PROMPT.md
+	// This field is not serialized to JSON
+	systemPrompt string
 }
 
 // DefaultConfig returns a configuration with sensible defaults
@@ -54,7 +60,7 @@ func DefaultConfig() *Config {
 		LogLevel:            "info",
 		EnableFileLogging:   true,
 		AgentsFileEnabled:   true, // Enable AGENTS.md detection by default
-		DefaultSystemPrompt: "You are a helpful AI assistant with access to system tools. You can perform various tasks including executing bash commands and reading files when needed to help answer questions or complete tasks.\n\nAvailable built-in tools:\n- execute_bash: Execute bash commands on the system (requires user permission)\n  - Parameters: command (required), working_dir (optional), timeout (optional, max 300 seconds)\n  - Use for: running commands, checking system info, file operations, etc.\n- filesystem_read: Read local filesystem - get working directory, list directories, and read file contents\n  - Actions: get_working_directory, list_directory, read_file\n  - Use for: exploring file structures, reading configuration files, etc.\n\nWhen you need to use a tool, format your request as a tool call with proper JSON formatting. Always explain what you're doing and why. Your purpose is to provide direct, accurate answers to user questions. When providing lists of items (such as countries, capitals, features, etc.), format your response using proper numbered or bulleted lists. Be consistent in your formatting. If you don't know the answer, state that you are unable to provide a response.",
+		// DefaultSystemPrompt is left empty - system prompt is now loaded from SYSTEM_PROMPT.md
 	}
 }
 
@@ -94,6 +100,92 @@ func path() (string, error) {
 	return filepath.Join(configDir, "settings.json"), nil
 }
 
+// systemPromptPath returns the full path to the system prompt markdown file
+func systemPromptPath() (string, error) {
+	configDir, err := dir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(configDir, "SYSTEM_PROMPT.md"), nil
+}
+
+// getDefaultSystemPrompt returns the default system prompt content
+func getDefaultSystemPrompt() string {
+	return `You are a helpful AI assistant with access to system tools. Provide concise, well-formatted responses. If you don't know something, state "I don't know" rather than guessing.
+
+## Tool Access & Permissions
+You have access to tools that require user permission. When requesting tool use, explain what tool you need and why. The permission system uses:
+- **y**: Allow this specific use
+- **n**: Deny this request  
+- **t**: Trust for entire session
+
+Available tools include execute_bash, filesystem_read, MCP tools (server.toolname format), and RAG (no permission needed).
+
+## Project Context
+If an AGENTS.md file is detected, you must evaluate and follow all instructions in that file. Project-specific guidance takes priority over default behavior.
+
+Your goal is to provide accurate, helpful assistance while respecting permissions and following project-specific guidance.`
+}
+
+// LoadSystemPrompt reads the system prompt from SYSTEM_PROMPT.md
+// If the file doesn't exist, it creates it with default content
+func LoadSystemPrompt() (string, error) {
+	promptPath, err := systemPromptPath()
+	if err != nil {
+		return "", fmt.Errorf("failed to get system prompt path: %w", err)
+	}
+
+	// If system prompt file doesn't exist, create it with default content
+	if _, err := os.Stat(promptPath); os.IsNotExist(err) {
+		configDir, err := dir()
+		if err != nil {
+			return "", fmt.Errorf("failed to get config directory: %w", err)
+		}
+
+		// Create config directory if it doesn't exist
+		if err := os.MkdirAll(configDir, 0755); err != nil {
+			return "", fmt.Errorf("failed to create config directory: %w", err)
+		}
+
+		defaultPrompt := getDefaultSystemPrompt()
+		if err := os.WriteFile(promptPath, []byte(defaultPrompt), 0644); err != nil {
+			return "", fmt.Errorf("failed to create default system prompt file: %w", err)
+		}
+		return defaultPrompt, nil
+	}
+
+	data, err := os.ReadFile(promptPath)
+	if err != nil {
+		return "", fmt.Errorf("failed to read system prompt file: %w", err)
+	}
+
+	return string(data), nil
+}
+
+// SaveSystemPrompt writes the system prompt to SYSTEM_PROMPT.md
+func SaveSystemPrompt(prompt string) error {
+	configDir, err := dir()
+	if err != nil {
+		return fmt.Errorf("failed to get config directory: %w", err)
+	}
+
+	// Create config directory if it doesn't exist
+	if err := os.MkdirAll(configDir, 0755); err != nil {
+		return fmt.Errorf("failed to create config directory: %w", err)
+	}
+
+	promptPath, err := systemPromptPath()
+	if err != nil {
+		return fmt.Errorf("failed to get system prompt path: %w", err)
+	}
+
+	if err := os.WriteFile(promptPath, []byte(prompt), 0644); err != nil {
+		return fmt.Errorf("failed to write system prompt file: %w", err)
+	}
+
+	return nil
+}
+
 // Load reads the configuration from the settings file
 // If the file doesn't exist, it creates it with default configuration
 func Load() (*Config, error) {
@@ -105,6 +197,11 @@ func Load() (*Config, error) {
 	// If config file doesn't exist, create it with default config
 	if _, err := os.Stat(configPath); os.IsNotExist(err) {
 		config := DefaultConfig()
+		// Ensure system prompt file exists with default content
+		_, err := LoadSystemPrompt()
+		if err != nil {
+			return nil, fmt.Errorf("failed to initialize system prompt: %w", err)
+		}
 		if saveErr := config.Save(); saveErr != nil {
 			// If save fails, still return the default config but log the error
 			// This ensures the application can still run even if the config directory
@@ -127,18 +224,49 @@ func Load() (*Config, error) {
 	// Apply default values for any missing fields (needed for backward compatibility)
 	applyDefaultsIfMissing(&config)
 
+	// Handle migration from old DefaultSystemPrompt to new file-based system
+	if err := migrateSystemPrompt(&config); err != nil {
+		return nil, fmt.Errorf("failed to migrate system prompt: %w", err)
+	}
+
 	return &config, nil
+}
+
+// migrateSystemPrompt handles migration from old DefaultSystemPrompt field to SYSTEM_PROMPT.md file
+func migrateSystemPrompt(c *Config) error {
+	// Check if there's a system prompt file already
+	promptPath, err := systemPromptPath()
+	if err != nil {
+		return fmt.Errorf("failed to get system prompt path: %w", err)
+	}
+
+	_, fileExists := os.Stat(promptPath)
+	
+	// If we have a DefaultSystemPrompt in the config and no file exists, migrate it
+	if c.DefaultSystemPrompt != "" && os.IsNotExist(fileExists) {
+		if err := SaveSystemPrompt(c.DefaultSystemPrompt); err != nil {
+			return fmt.Errorf("failed to migrate system prompt to file: %w", err)
+		}
+		// Clear the JSON field after successful migration and save config
+		c.DefaultSystemPrompt = ""
+		if err := c.Save(); err != nil {
+			return fmt.Errorf("failed to save config after migration: %w", err)
+		}
+	} else if os.IsNotExist(fileExists) {
+		// No file exists and no DefaultSystemPrompt, ensure default file is created
+		_, err := LoadSystemPrompt()
+		if err != nil {
+			return fmt.Errorf("failed to create default system prompt: %w", err)
+		}
+	}
+
+	return nil
 }
 
 // applyDefaultsIfMissing sets default values for any config fields that might be missing
 // This ensures backward compatibility when new fields are added
 func applyDefaultsIfMissing(c *Config) {
 	defaultConfig := DefaultConfig()
-
-	// Check for empty DefaultSystemPrompt and apply default if needed
-	if c.DefaultSystemPrompt == "" {
-		c.DefaultSystemPrompt = defaultConfig.DefaultSystemPrompt
-	}
 
 	// Initialize ToolTrustLevels if nil (for backward compatibility)
 	if c.ToolTrustLevels == nil {
@@ -366,4 +494,31 @@ func (c *Config) GetLogLevel() int {
 	default:
 		return 1 // Default to info
 	}
+}
+
+// GetSystemPrompt returns the system prompt, loading it from file if not cached
+func (c *Config) GetSystemPrompt() (string, error) {
+	if c.systemPrompt == "" {
+		prompt, err := LoadSystemPrompt()
+		if err != nil {
+			return "", err
+		}
+		c.systemPrompt = prompt
+	}
+	return c.systemPrompt, nil
+}
+
+// SetSystemPrompt sets the system prompt and saves it to file
+func (c *Config) SetSystemPrompt(prompt string) error {
+	if err := SaveSystemPrompt(prompt); err != nil {
+		return err
+	}
+	c.systemPrompt = prompt
+	return nil
+}
+
+// GetDefaultSystemPrompt returns the system prompt for backward compatibility
+// This is deprecated - use GetSystemPrompt() instead
+func (c *Config) GetDefaultSystemPrompt() (string, error) {
+	return c.GetSystemPrompt()
 }

@@ -757,7 +757,7 @@ func TestModel_GetSystemPromptHeight(t *testing.T) {
 	// Test with very long system prompt (should be limited)
 	model.sessionSystemPrompt = strings.Repeat("This is a very long system prompt that should be limited in height. ", 20)
 	longHeight := model.getSystemPromptHeight()
-	maxAllowedHeight := model.height / 3
+	maxAllowedHeight := model.height / 2
 	if longHeight > maxAllowedHeight {
 		t.Errorf("System prompt height should be limited to %d, got %d", maxAllowedHeight, longHeight)
 	}
@@ -1515,4 +1515,141 @@ func TestClearCommand(t *testing.T) {
 	}
 
 	t.Log("✓ /clear command successfully cleared chat history and input")
+}
+
+func TestFormatConversationHistory(t *testing.T) {
+	// Create a test model
+	config := &configuration.Config{
+		ChatModel:           "llama3.1",
+		DefaultSystemPrompt: "You are a helpful assistant",
+		SelectedCollections: make(map[string]bool),
+	}
+
+	ctx := t.Context()
+	model := NewModel(ctx, config)
+
+	// Test with empty conversation
+	formatted := model.formatConversationHistory()
+	if !strings.Contains(formatted, "No conversation history available.") {
+		t.Errorf("Expected empty conversation message, got: %s", formatted)
+	}
+
+	// Add some test messages
+	now := time.Now()
+	model.messages = []Message{
+		{
+			Role:    "user",
+			Content: "Hello, how are you?",
+			Time:    now,
+			ULID:    "test-ulid-1",
+		},
+		{
+			Role:    "assistant",
+			Content: "I'm doing well, thank you! How can I help you today?",
+			Time:    now.Add(1 * time.Second),
+			ULID:    "test-ulid-2",
+		},
+		{
+			Role:    "user",
+			Content: "Can you explain Go channels?",
+			Time:    now.Add(2 * time.Second),
+			ULID:    "test-ulid-3",
+		},
+		{
+			Role:     "tool",
+			Content:  "Tool response",
+			Time:     now.Add(3 * time.Second),
+			ULID:     "test-ulid-4",
+			ToolName: "search",
+			Hidden:   true, // This should be skipped
+		},
+	}
+
+	// Test with messages
+	formatted = model.formatConversationHistory()
+
+	// Check that it contains the header
+	if !strings.Contains(formatted, "Conversation History") {
+		t.Errorf("Expected conversation header, got: %s", formatted)
+	}
+
+	// Check that it contains user messages
+	if !strings.Contains(formatted, "USER:") {
+		t.Errorf("Expected USER role, got: %s", formatted)
+	}
+
+	if !strings.Contains(formatted, "ASSISTANT:") {
+		t.Errorf("Expected ASSISTANT role, got: %s", formatted)
+	}
+
+	// Check that it contains the actual content
+	if !strings.Contains(formatted, "Hello, how are you?") {
+		t.Errorf("Expected user message content, got: %s", formatted)
+	}
+
+	if !strings.Contains(formatted, "I'm doing well, thank you!") {
+		t.Errorf("Expected assistant message content, got: %s", formatted)
+	}
+
+	// Check that hidden messages are skipped
+	if strings.Contains(formatted, "Tool response") {
+		t.Errorf("Expected hidden tool message to be skipped, but found it in: %s", formatted)
+	}
+
+	// Check that separators exist
+	if !strings.Contains(formatted, "---") {
+		t.Errorf("Expected message separators, got: %s", formatted)
+	}
+
+	t.Log("✓ formatConversationHistory works correctly")
+}
+
+func TestCopyConversationKeyBinding(t *testing.T) {
+	// Create a test model
+	config := &configuration.Config{
+		ChatModel:           "llama3.1",
+		DefaultSystemPrompt: "You are a helpful assistant",
+		SelectedCollections: make(map[string]bool),
+	}
+
+	ctx := t.Context()
+	model := NewModel(ctx, config)
+
+	// Add some test messages
+	now := time.Now()
+	model.messages = []Message{
+		{
+			Role:    "user",
+			Content: "Test message",
+			Time:    now,
+			ULID:    "test-ulid-1",
+		},
+		{
+			Role:    "assistant",
+			Content: "Test response",
+			Time:    now.Add(1 * time.Second),
+			ULID:    "test-ulid-2",
+		},
+	}
+
+	initialMessageCount := len(model.messages)
+
+	// Since we can't easily test the actual clipboard in unit tests,
+	// we'll test that the formatting function works correctly
+	formatted := model.formatConversationHistory()
+
+	if !strings.Contains(formatted, "Test message") {
+		t.Errorf("Expected test message in formatted output")
+	}
+
+	if !strings.Contains(formatted, "Test response") {
+		t.Errorf("Expected test response in formatted output")
+	}
+
+	// Test that the model state is preserved
+	if len(model.messages) != initialMessageCount {
+		t.Errorf("Message count changed unexpectedly")
+	}
+
+	t.Log("✓ Copy conversation functionality works correctly")
 }

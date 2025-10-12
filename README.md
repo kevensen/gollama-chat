@@ -164,6 +164,7 @@ Default configuration:
 - `Enter` - Send message
 - `Ctrl+L` - Clear chat history
 - `Ctrl+S` - Toggle system prompt display
+- `Ctrl+Shift+C` - Copy conversation history to clipboard
 - `↑` / `↓` - Scroll through messages
 - `←` / `→` - Move cursor in input
 

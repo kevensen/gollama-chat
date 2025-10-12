@@ -27,7 +27,7 @@ func TestDetector_CrossPlatformCaseSensitivity(t *testing.T) {
 			if err != nil {
 				t.Fatalf("Failed to create temp dir: %v", err)
 			}
-			defer os.RemoveAll(tmpDir)
+			defer func() { _ = os.RemoveAll(tmpDir) }()
 
 			// Create file with specific case
 			content := "Cross-platform test content"
@@ -71,7 +71,7 @@ func TestDetector_FileSystemCaseHandling(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create temp dir: %v", err)
 	}
-	defer os.RemoveAll(tmpDir)
+	defer func() { _ = os.RemoveAll(tmpDir) }()
 
 	// Create a file with lowercase name
 	content := "Filesystem case handling test"

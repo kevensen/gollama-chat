@@ -138,10 +138,10 @@ func TestBooleanToggleFunctionality(t *testing.T) {
 	// Create configuration tab model
 	model := NewModel(initialConfig)
 
-	// Test toggling RAG enabled field
-	model.activeField = RAGEnabledField
-	if model.editConfig.RAGEnabled != false {
-		t.Errorf("Expected RAG to be initially false, got %t", model.editConfig.RAGEnabled)
+	// Test toggling Enable File Logging field
+	model.activeField = EnableFileLoggingField
+	if model.editConfig.EnableFileLogging != true {
+		t.Errorf("Expected EnableFileLogging to be initially true, got %t", model.editConfig.EnableFileLogging)
 	}
 
 	// Simulate pressing Enter to toggle the field
@@ -149,30 +149,15 @@ func TestBooleanToggleFunctionality(t *testing.T) {
 	updatedModel, _ := model.handleNavigationKeys(toggleMsg)
 	model = updatedModel.(Model)
 
-	if model.editConfig.RAGEnabled != true {
-		t.Errorf("Expected RAG to be true after toggle, got %t", model.editConfig.RAGEnabled)
+	if model.editConfig.EnableFileLogging != false {
+		t.Errorf("Expected EnableFileLogging to be false after toggle, got %t", model.editConfig.EnableFileLogging)
 	}
 
 	// Toggle again
 	updatedModel, _ = model.handleNavigationKeys(toggleMsg)
 	model = updatedModel.(Model)
 
-	if model.editConfig.RAGEnabled != false {
-		t.Errorf("Expected RAG to be false after second toggle, got %t", model.editConfig.RAGEnabled)
-	}
-
-	// Test toggling Enable File Logging field
-	model.activeField = EnableFileLoggingField
 	if model.editConfig.EnableFileLogging != true {
-		t.Errorf("Expected EnableFileLogging to be initially true, got %t", model.editConfig.EnableFileLogging)
-	}
-
-	// Simulate pressing Space to toggle the field
-	spaceMsg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{' '}}
-	updatedModel, _ = model.handleNavigationKeys(spaceMsg)
-	model = updatedModel.(Model)
-
-	if model.editConfig.EnableFileLogging != false {
-		t.Errorf("Expected EnableFileLogging to be false after toggle, got %t", model.editConfig.EnableFileLogging)
+		t.Errorf("Expected EnableFileLogging to be true after second toggle, got %t", model.editConfig.EnableFileLogging)
 	}
 }

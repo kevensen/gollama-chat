@@ -1,7 +1,6 @@
 package chat
 
 import (
-	"context"
 	"testing"
 
 	"github.com/kevensen/gollama-chat/internal/configuration"
@@ -21,7 +20,7 @@ func TestUpdateFromConfiguration_RAGSettings(t *testing.T) {
 		ChromaDBDistance:    1.0,
 	}
 
-	ctx := context.Background()
+	ctx := t.Context()
 	model := NewModel(ctx, initialConfig)
 
 	// Test 1: Enable RAG
@@ -36,7 +35,7 @@ func TestUpdateFromConfiguration_RAGSettings(t *testing.T) {
 		ChromaDBDistance:    1.0,
 	}
 
-	model.UpdateFromConfiguration(newConfig)
+	model.UpdateFromConfiguration(ctx, newConfig)
 
 	// Verify configuration was updated
 	if !model.config.RAGEnabled {
@@ -55,7 +54,7 @@ func TestUpdateFromConfiguration_RAGSettings(t *testing.T) {
 		ChromaDBDistance:    1.0,
 	}
 
-	model.UpdateFromConfiguration(newConfig2)
+	model.UpdateFromConfiguration(ctx, newConfig2)
 
 	// Verify configuration was updated
 	if model.config.ChromaDBURL != "http://localhost:9000" {
@@ -74,7 +73,7 @@ func TestUpdateFromConfiguration_RAGSettings(t *testing.T) {
 		ChromaDBDistance:    1.0,
 	}
 
-	model.UpdateFromConfiguration(newConfig3)
+	model.UpdateFromConfiguration(ctx, newConfig3)
 
 	// Verify configuration was updated
 	if !model.config.SelectedCollections["collection2"] || !model.config.SelectedCollections["collection3"] {

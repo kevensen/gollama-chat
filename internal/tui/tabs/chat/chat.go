@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/atotto/clipboard"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/oklog/ulid/v2"
@@ -491,19 +492,23 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 
 		case "ctrl+e":
-			// Enter edit mode for system prompt - open pane if needed
+			// Only handle system prompt editing if system prompt is visible and has focus
+			// Otherwise, delegate to input model for cursor movement to end
 			debugLog(fmt.Sprintf("Ctrl+E pressed, current state: showSystemPrompt=%t, systemPromptEditMode=%t", m.showSystemPrompt, m.systemPromptEditMode))
-			if !m.showSystemPrompt {
-				// Open system prompt pane if it's not visible
-				m.showSystemPrompt = true
-				m.messagesNeedsUpdate = true // Force layout refresh
-				debugLog("Opened system prompt pane")
+			if m.showSystemPrompt && !m.systemPromptEditMode {
+				// System prompt is visible but not in edit mode - enter edit mode
+				m.systemPromptEditMode = true
+				m.systemPromptEditor = "" // Clear the prompt as requested
+				m.systemPromptNeedsUpdate = true
+				debugLog("Set systemPromptEditMode=true, cleared editor")
+				return m, nil
+			} else if !m.showSystemPrompt || m.systemPromptEditMode {
+				// System prompt not visible OR already in edit mode - delegate to input model for cursor movement
+				debugLog("Delegating ctrl+e to input model for cursor movement")
+				updatedInputModel, cmd := m.inputModel.Update(msg)
+				m.inputModel = &updatedInputModel
+				return m, cmd
 			}
-			// Always enter edit mode and clear the prompt
-			m.systemPromptEditMode = true
-			m.systemPromptEditor = "" // Clear the prompt as requested
-			m.systemPromptNeedsUpdate = true
-			debugLog("Set systemPromptEditMode=true, cleared editor")
 			return m, nil
 
 		case "ctrl+r":
@@ -514,6 +519,42 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				debugLog("Restored default system prompt in editor")
 				return m, nil
 			}
+
+		case "ctrl+shift+c":
+			// Copy conversation history to clipboard
+			err := m.copyConversationToClipboard()
+			if err != nil {
+				// Add error message to show copy failed
+				errorULID := generateULID()
+				errorMsg := Message{
+					Role:    "system",
+					Content: fmt.Sprintf("Failed to copy conversation to clipboard: %s", err.Error()),
+					Time:    time.Now(),
+					ULID:    errorULID,
+				}
+				m.messages = append(m.messages, errorMsg)
+				m.messagesNeedsUpdate = true
+				m.messageCache.InvalidateCache()
+
+				// Log error
+				logConversationEvent(errorULID, "system", errorMsg.Content, m.config.ChatModel)
+			} else {
+				// Add success message to show copy succeeded
+				successULID := generateULID()
+				successMsg := Message{
+					Role:    "system",
+					Content: "Conversation history copied to clipboard.",
+					Time:    time.Now(),
+					ULID:    successULID,
+				}
+				m.messages = append(m.messages, successMsg)
+				m.messagesNeedsUpdate = true
+				m.messageCache.InvalidateCache()
+
+				// Log success
+				logConversationEvent(successULID, "system", successMsg.Content, m.config.ChatModel)
+			}
+			return m, nil
 
 		case "ctrl+l":
 			// Clear chat
@@ -1132,12 +1173,11 @@ func (m Model) wrapRegularText(text string, width int) []string {
 	return lines
 }
 
-// parseMarkdownFormatting processes text to apply markdown formatting like **bold**
+// parseMarkdownFormatting processes text to apply markdown formatting like **bold** and _italic_
 func (m Model) parseMarkdownFormatting(text string) string {
-	// Process **bold** text markers
 	result := text
 
-	// Find all **bold** patterns and replace them with styled text
+	// Process **bold** text markers first
 	for {
 		start := strings.Index(result, "**")
 		if start == -1 {
@@ -1162,6 +1202,33 @@ func (m Model) parseMarkdownFormatting(text string) string {
 
 		// Replace the **text** with styled text
 		result = result[:start] + styledText + result[end+2:]
+	}
+
+	// Process _italic_ text markers
+	for {
+		start := strings.Index(result, "_")
+		if start == -1 {
+			break
+		}
+
+		// Find the closing _
+		end := strings.Index(result[start+1:], "_")
+		if end == -1 {
+			// No closing _, leave as is
+			break
+		}
+
+		// Adjust end position to be relative to the full string
+		end = start + 1 + end
+
+		// Extract the text between _ markers
+		italicText := result[start+1 : end]
+
+		// Apply italic styling
+		styledText := m.styles.italicText.Render(italicText)
+
+		// Replace the _text_ with styled text
+		result = result[:start] + styledText + result[end+1:]
 	}
 
 	return result
@@ -1310,7 +1377,7 @@ func (m Model) denyToolExecution() (tea.Model, tea.Cmd) {
 
 // UpdateFromConfiguration updates the session system prompt from configuration changes
 // but only if the session prompt has not been manually modified
-func (m *Model) UpdateFromConfiguration(newConfig *configuration.Config) {
+func (m *Model) UpdateFromConfiguration(ctx context.Context, newConfig *configuration.Config) {
 	logger := logging.WithComponent("chat")
 
 	// Always log when this method is called
@@ -1357,7 +1424,7 @@ func (m *Model) UpdateFromConfiguration(newConfig *configuration.Config) {
 			m.ragService.UpdateConfig(newConfig)
 
 			// Update selected collections
-			m.ragService.UpdateSelectedCollections(newConfig.SelectedCollections)
+			m.ragService.UpdateSelectedCollections(ctx, newConfig.SelectedCollections)
 
 			// If RAG is enabled, reinitialize the service to pick up new settings
 			if newConfig.RAGEnabled {
@@ -1401,6 +1468,62 @@ func equalStringMaps(a, b map[string]bool) bool {
 		}
 	}
 	return true
+}
+
+// formatConversationHistory formats the conversation history as a readable text string for copying
+func (m *Model) formatConversationHistory() string {
+	if len(m.messages) == 0 {
+		return "No conversation history available."
+	}
+
+	var sb strings.Builder
+	sb.WriteString("Conversation History\n")
+	sb.WriteString("==================\n\n")
+
+	for i, msg := range m.messages {
+		// Skip hidden messages (like tool responses)
+		if msg.Hidden {
+			continue
+		}
+
+		// Format timestamp
+		timestamp := msg.Time.Format("2006-01-02 15:04:05")
+
+		// Format role
+		role := strings.ToUpper(msg.Role)
+
+		// Write header
+		sb.WriteString(fmt.Sprintf("[%s] %s:\n", timestamp, role))
+
+		// Handle tool messages differently
+		if msg.Role == "tool" && msg.ToolName != "" {
+			sb.WriteString(fmt.Sprintf("Tool: %s\n", msg.ToolName))
+		}
+
+		// Write content with proper indentation
+		content := strings.TrimSpace(msg.Content)
+		if content != "" {
+			// Indent content for readability
+			lines := strings.Split(content, "\n")
+			for _, line := range lines {
+				sb.WriteString("  " + line + "\n")
+			}
+		}
+
+		// Add separator between messages (except for the last one)
+		if i < len(m.messages)-1 {
+			sb.WriteString("\n---\n\n")
+		}
+	}
+
+	sb.WriteString("\n\nEnd of conversation history.")
+	return sb.String()
+}
+
+// copyConversationToClipboard copies the formatted conversation history to the system clipboard
+func (m *Model) copyConversationToClipboard() error {
+	formattedHistory := m.formatConversationHistory()
+	return clipboard.WriteAll(formattedHistory)
 }
 
 // UpdateAgentsFile updates the AGENTS.md file for the chat model and refreshes the system prompt

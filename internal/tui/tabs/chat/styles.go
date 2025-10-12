@@ -26,6 +26,9 @@ type Styles struct {
 
 	// Style for bold text within message content
 	boldText lipgloss.Style
+
+	// Style for italic text within message content
+	italicText lipgloss.Style
 }
 
 // DefaultStyles creates default styles for the chat UI
@@ -61,5 +64,8 @@ func DefaultStyles() Styles {
 
 		boldText: lipgloss.NewStyle().
 			Bold(true),
+
+		italicText: lipgloss.NewStyle().
+			Italic(true),
 	}
 }
