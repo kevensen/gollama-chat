@@ -14,10 +14,6 @@ import (
 	"github.com/kevensen/gollama-chat/internal/tui/core"
 )
 
-var (
-	isChild = flag.Bool("child", false, "Internal flag - indicates running as child process")
-)
-
 func main() {
 	// Parse command line flags
 	flag.Parse()
@@ -49,13 +45,6 @@ func main() {
 	logger := logging.WithComponent("main")
 	logger.Info("Starting gollama-chat application")
 
-	// If we're being run as a child process, force TUI mode
-	if *isChild {
-		logger.Debug("Running as child process")
-		runTUIMode(ctx, config)
-		return
-	}
-
 	// Run TUI mode
 	logger.Debug("Running in TUI mode")
 	runTUIMode(ctx, config)
@@ -68,27 +57,16 @@ func runTUIMode(ctx context.Context, config *configuration.Config) {
 	// Create TUI model
 	model := core.NewModel(ctx, config)
 
-	// Create Bubble Tea program with PTY-compatible settings
-	var program *tea.Program
-	if *isChild {
-		logger.Debug("Configuring TUI for child process (PTY mode)")
-		// When running as child (in PTY), use minimal settings
-		program = tea.NewProgram(
-			model,
-			tea.WithAltScreen(),
-		)
-	} else {
-		logger.Debug("Configuring TUI for direct mode")
-		// When running directly, use full settings
-		program = tea.NewProgram(
-			model,
-			tea.WithAltScreen(),
-			tea.WithMouseCellMotion(),
-			tea.WithFPS(60),            // Balanced FPS - responsive but not excessive
-			tea.WithInputTTY(),         // Use TTY input for better responsiveness
-			tea.WithoutSignalHandler(), // Disable signal handling for less overhead
-		)
-	}
+	// Create Bubble Tea program
+	logger.Debug("Configuring TUI")
+	program := tea.NewProgram(
+		model,
+		tea.WithAltScreen(),
+		tea.WithMouseCellMotion(),
+		tea.WithFPS(60),            // Balanced FPS - responsive but not excessive
+		tea.WithInputTTY(),         // Use TTY input for better responsiveness
+		tea.WithoutSignalHandler(), // Disable signal handling for less overhead
+	)
 
 	logger.Info("Starting TUI program")
 	// Run the program
