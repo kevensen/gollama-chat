@@ -274,7 +274,7 @@ func (m Model) handleNavigationKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			if !m.systemPromptEditMode {
 				m.systemPromptEditMode = true
 				m.systemPromptEditInput = m.editConfig.DefaultSystemPrompt
-				m.systemPromptEditCursor = len(m.systemPromptEditInput)
+				m.systemPromptEditCursor = len([]rune(m.systemPromptEditInput))
 				m.systemPromptScrollY = 0 // Reset scroll when entering edit mode
 			}
 			return m, nil
@@ -294,7 +294,7 @@ func (m Model) handleNavigationKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				// System prompt saved successfully - no need to save main config since it's in a separate file
 				m.message = "System prompt updated and saved"
 				m.messageStyle = m.messageStyle.Foreground(lipgloss.Color("10"))
-				
+
 				// Send config update message to notify other tabs that the system prompt changed
 				updateCmd := func() tea.Msg {
 					return ConfigUpdatedMsg{Config: m.config}
@@ -309,13 +309,21 @@ func (m Model) handleNavigationKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			switch msg.String() {
 			case "backspace":
 				if m.systemPromptEditCursor > 0 {
-					m.systemPromptEditInput = m.systemPromptEditInput[:m.systemPromptEditCursor-1] + m.systemPromptEditInput[m.systemPromptEditCursor:]
-					m.systemPromptEditCursor--
+					runes := []rune(m.systemPromptEditInput)
+					if m.systemPromptEditCursor <= len(runes) {
+						// Remove the rune before cursor
+						newRunes := append(runes[:m.systemPromptEditCursor-1], runes[m.systemPromptEditCursor:]...)
+						m.systemPromptEditInput = string(newRunes)
+						m.systemPromptEditCursor--
+					}
 				}
 				return m, nil
 			case "delete":
-				if m.systemPromptEditCursor < len(m.systemPromptEditInput) {
-					m.systemPromptEditInput = m.systemPromptEditInput[:m.systemPromptEditCursor] + m.systemPromptEditInput[m.systemPromptEditCursor+1:]
+				runes := []rune(m.systemPromptEditInput)
+				if m.systemPromptEditCursor < len(runes) {
+					// Remove the rune at cursor
+					newRunes := append(runes[:m.systemPromptEditCursor], runes[m.systemPromptEditCursor+1:]...)
+					m.systemPromptEditInput = string(newRunes)
 				}
 				return m, nil
 			case "left":
@@ -324,7 +332,8 @@ func (m Model) handleNavigationKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				}
 				return m, nil
 			case "right":
-				if m.systemPromptEditCursor < len(m.systemPromptEditInput) {
+				runes := []rune(m.systemPromptEditInput)
+				if m.systemPromptEditCursor < len(runes) {
 					m.systemPromptEditCursor++
 				}
 				return m, nil
@@ -352,18 +361,23 @@ func (m Model) handleNavigationKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				return m, nil
 			case "ctrl+end":
 				// Move to end of text
-				m.systemPromptEditCursor = len(m.systemPromptEditInput)
+				runes := []rune(m.systemPromptEditInput)
+				m.systemPromptEditCursor = len(runes)
 				return m, nil
 			case "enter":
 				// Insert newline
-				m.systemPromptEditInput = m.systemPromptEditInput[:m.systemPromptEditCursor] + "\n" + m.systemPromptEditInput[m.systemPromptEditCursor:]
+				runes := []rune(m.systemPromptEditInput)
+				newRunes := append(runes[:m.systemPromptEditCursor], append([]rune{'\n'}, runes[m.systemPromptEditCursor:]...)...)
+				m.systemPromptEditInput = string(newRunes)
 				m.systemPromptEditCursor++
 				return m, nil
 			case "tab":
 				// Insert tab or spaces
-				tabString := "    " // 4 spaces
-				m.systemPromptEditInput = m.systemPromptEditInput[:m.systemPromptEditCursor] + tabString + m.systemPromptEditInput[m.systemPromptEditCursor:]
-				m.systemPromptEditCursor += len(tabString)
+				tabRunes := []rune("    ") // 4 spaces
+				runes := []rune(m.systemPromptEditInput)
+				newRunes := append(runes[:m.systemPromptEditCursor], append(tabRunes, runes[m.systemPromptEditCursor:]...)...)
+				m.systemPromptEditInput = string(newRunes)
+				m.systemPromptEditCursor += len(tabRunes)
 				return m, nil
 			default:
 				// Handle regular character input
@@ -371,8 +385,11 @@ func (m Model) handleNavigationKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 					char := msg.String()
 					// Allow all printable characters including space
 					if char >= " " && char <= "~" || char >= "\u00A0" { // Printable ASCII + extended
-						m.systemPromptEditInput = m.systemPromptEditInput[:m.systemPromptEditCursor] + char + m.systemPromptEditInput[m.systemPromptEditCursor:]
-						m.systemPromptEditCursor++
+						runes := []rune(m.systemPromptEditInput)
+						charRunes := []rune(char)
+						newRunes := append(runes[:m.systemPromptEditCursor], append(charRunes, runes[m.systemPromptEditCursor:]...)...)
+						m.systemPromptEditInput = string(newRunes)
+						m.systemPromptEditCursor += len(charRunes)
 					}
 				}
 				return m, nil
@@ -727,9 +744,9 @@ func (m Model) renderSystemPromptPanel(width int) string {
 		Align(lipgloss.Center)
 
 	if m.systemPromptEditMode {
-		content = append(content, titleStyle.Render("Edit System Prompt"))
+		content = append(content, titleStyle.Render("Edit System Prompt (Markdown)"))
 	} else {
-		content = append(content, titleStyle.Render("View System Prompt"))
+		content = append(content, titleStyle.Render("View System Prompt (Markdown)"))
 	}
 	content = append(content, "")
 
@@ -751,6 +768,8 @@ func (m Model) renderSystemPromptPanel(width int) string {
 		displayText = m.systemPromptEditInput
 	} else {
 		displayText = m.editConfig.DefaultSystemPrompt
+		// Apply markdown syntax highlighting only in view mode
+		displayText = m.applyMarkdownStyling(displayText)
 	}
 
 	// For display purposes, we'll render visible indicators but work with original text
@@ -790,32 +809,35 @@ func (m Model) renderSystemPromptPanel(width int) string {
 		charCount := 0
 
 		for i, line := range lines {
-			lineLength := len(line)
-			if charCount+lineLength >= displayCursor {
+			lineRunes := []rune(line)
+			if charCount+len(lineRunes) >= displayCursor {
 				// Check if this line is visible in the current viewport
 				visibleLineIndex := i - m.systemPromptScrollY
 				if visibleLineIndex >= 0 && visibleLineIndex < len(displayLines) {
 					localCursor := displayCursor - charCount
 
 					// Ensure cursor position is valid
-					if localCursor > len(visibleLines[visibleLineIndex]) {
-						localCursor = len(visibleLines[visibleLineIndex])
+					visibleLineRunes := []rune(visibleLines[visibleLineIndex])
+					if localCursor > len(visibleLineRunes) {
+						localCursor = len(visibleLineRunes)
 					}
 
-					// Add cursor to the display
-					if localCursor == len(visibleLines[visibleLineIndex]) {
-						displayLines[visibleLineIndex] = visibleLines[visibleLineIndex] + "█"
+					// Add cursor to the display (insert mode - cursor goes between characters)
+					if localCursor >= len(visibleLineRunes) {
+						displayLines[visibleLineIndex] = visibleLines[visibleLineIndex] + "|"
 					} else if localCursor >= 0 {
-						line := visibleLines[visibleLineIndex]
-						displayLines[visibleLineIndex] = line[:localCursor] + "█" + line[localCursor+1:]
+						lineRunes := []rune(visibleLines[visibleLineIndex])
+						// Insert cursor between characters instead of replacing
+						newLineRunes := append(lineRunes[:localCursor], append([]rune("|"), lineRunes[localCursor:]...)...)
+						displayLines[visibleLineIndex] = string(newLineRunes)
 					}
 				}
 				break
 			}
 
 			// Account for the line content and newlines
-			charCount += lineLength
-			if i < len(lines)-1 && charCount < len(displayTextWithIndicators) && displayTextWithIndicators[charCount] == '\n' {
+			charCount += len(lineRunes)
+			if i < len(lines)-1 && charCount < len([]rune(displayTextWithIndicators)) {
 				charCount++ // Account for the newline character
 			}
 		}
@@ -874,18 +896,19 @@ func (m Model) renderSystemPromptPanel(width int) string {
 func (m Model) moveCursorUp(text string, cursor int) int {
 	lines := strings.Split(text, "\n")
 
-	// Find current line and column
-	currentPos := 0
+	// Find current line and column in runes
+	currentRunePos := 0
 	currentLine := 0
 	currentCol := 0
 
 	for i, line := range lines {
-		if currentPos+len(line) >= cursor {
+		lineRunes := []rune(line)
+		if currentRunePos+len(lineRunes) >= cursor {
 			currentLine = i
-			currentCol = cursor - currentPos
+			currentCol = cursor - currentRunePos
 			break
 		}
-		currentPos += len(line) + 1 // +1 for newline
+		currentRunePos += len(lineRunes) + 1 // +1 for newline
 	}
 
 	// If already on first line, move to beginning
@@ -894,15 +917,15 @@ func (m Model) moveCursorUp(text string, cursor int) int {
 	}
 
 	// Move to previous line, trying to maintain column position
-	prevLine := lines[currentLine-1]
-	if currentCol > len(prevLine) {
-		currentCol = len(prevLine)
+	prevLineRunes := []rune(lines[currentLine-1])
+	if currentCol > len(prevLineRunes) {
+		currentCol = len(prevLineRunes)
 	}
 
-	// Calculate new cursor position
+	// Calculate new cursor position in runes
 	newPos := 0
 	for i := 0; i < currentLine-1; i++ {
-		newPos += len(lines[i]) + 1
+		newPos += len([]rune(lines[i])) + 1
 	}
 	newPos += currentCol
 
@@ -913,35 +936,41 @@ func (m Model) moveCursorUp(text string, cursor int) int {
 func (m Model) moveCursorDown(text string, cursor int) int {
 	lines := strings.Split(text, "\n")
 
-	// Find current line and column
-	currentPos := 0
+	// Find current line and column in runes
+	currentRunePos := 0
 	currentLine := 0
 	currentCol := 0
 
 	for i, line := range lines {
-		if currentPos+len(line) >= cursor {
+		lineRunes := []rune(line)
+		if currentRunePos+len(lineRunes) >= cursor {
 			currentLine = i
-			currentCol = cursor - currentPos
+			currentCol = cursor - currentRunePos
 			break
 		}
-		currentPos += len(line) + 1 // +1 for newline
+		currentRunePos += len(lineRunes) + 1 // +1 for newline
 	}
 
 	// If already on last line, move to end
 	if currentLine >= len(lines)-1 {
-		return len(text)
+		totalRunes := 0
+		for _, line := range lines {
+			totalRunes += len([]rune(line))
+		}
+		totalRunes += len(lines) - 1 // Add newlines
+		return totalRunes
 	}
 
 	// Move to next line, trying to maintain column position
-	nextLine := lines[currentLine+1]
-	if currentCol > len(nextLine) {
-		currentCol = len(nextLine)
+	nextLineRunes := []rune(lines[currentLine+1])
+	if currentCol > len(nextLineRunes) {
+		currentCol = len(nextLineRunes)
 	}
 
-	// Calculate new cursor position
+	// Calculate new cursor position in runes
 	newPos := 0
 	for i := 0; i <= currentLine; i++ {
-		newPos += len(lines[i]) + 1
+		newPos += len([]rune(lines[i])) + 1
 	}
 	newPos += currentCol
 
@@ -953,12 +982,13 @@ func (m Model) moveCursorToLineStart(text string, cursor int) int {
 	lines := strings.Split(text, "\n")
 
 	// Find current line
-	currentPos := 0
+	currentRunePos := 0
 	for _, line := range lines {
-		if currentPos+len(line) >= cursor {
-			return currentPos
+		lineRunes := []rune(line)
+		if currentRunePos+len(lineRunes) >= cursor {
+			return currentRunePos
 		}
-		currentPos += len(line) + 1 // +1 for newline
+		currentRunePos += len(lineRunes) + 1 // +1 for newline
 	}
 
 	return cursor
@@ -969,12 +999,13 @@ func (m Model) moveCursorToLineEnd(text string, cursor int) int {
 	lines := strings.Split(text, "\n")
 
 	// Find current line
-	currentPos := 0
+	currentRunePos := 0
 	for _, line := range lines {
-		if currentPos+len(line) >= cursor {
-			return currentPos + len(line)
+		lineRunes := []rune(line)
+		if currentRunePos+len(lineRunes) >= cursor {
+			return currentRunePos + len(lineRunes)
 		}
-		currentPos += len(line) + 1 // +1 for newline
+		currentRunePos += len(lineRunes) + 1 // +1 for newline
 	}
 
 	return cursor
@@ -1127,9 +1158,9 @@ func (m Model) renderField(field Field, label, value, help string) string {
 		displayValue = m.input
 		if m.cursor <= len(displayValue) {
 			if m.cursor == len(displayValue) {
-				displayValue += "█"
+				displayValue += "|"
 			} else {
-				displayValue = displayValue[:m.cursor] + "█" + displayValue[m.cursor+1:]
+				displayValue = displayValue[:m.cursor] + "|" + displayValue[m.cursor+1:]
 			}
 		}
 	} else if field == EnableFileLoggingField || field == AgentsFileEnabledField {
@@ -1169,40 +1200,92 @@ func (m Model) renderField(field Field, label, value, help string) string {
 	return fieldLine
 }
 
-// wrapText wraps text to fit within the specified width
+// wrapText wraps text to fit within the specified width with intelligent word breaking
 func (m Model) wrapText(text string, width int) []string {
 	if width <= 0 {
 		return []string{text}
 	}
 
-	words := strings.Fields(text)
-	if len(words) == 0 {
-		return []string{""}
-	}
+	lines := strings.Split(text, "\n")
+	var wrappedLines []string
 
-	var lines []string
-	var currentLine strings.Builder
-
-	for _, word := range words {
-		// If adding this word would exceed the width, start a new line
-		if currentLine.Len() > 0 && currentLine.Len()+1+len(word) > width {
-			lines = append(lines, currentLine.String())
-			currentLine.Reset()
+	for _, line := range lines {
+		if line == "" {
+			wrappedLines = append(wrappedLines, "")
+			continue
 		}
 
-		// Add word to current line
+		runes := []rune(line)
+		if len(runes) <= width {
+			wrappedLines = append(wrappedLines, line)
+			continue
+		}
+
+		// Word-aware wrapping
+		words := strings.Fields(line)
+		if len(words) == 0 {
+			// If no words (just whitespace), handle as before
+			for len(runes) > 0 {
+				endIdx := width
+				if endIdx > len(runes) {
+					endIdx = len(runes)
+				}
+				wrappedLines = append(wrappedLines, string(runes[:endIdx]))
+				runes = runes[endIdx:]
+			}
+			continue
+		}
+
+		var currentLine strings.Builder
+		for _, word := range words {
+			wordRunes := []rune(word)
+
+			// If the word itself is longer than the width, we need to break it
+			if len(wordRunes) > width {
+				// First, add current line if it has content
+				if currentLine.Len() > 0 {
+					wrappedLines = append(wrappedLines, currentLine.String())
+					currentLine.Reset()
+				}
+
+				// Break the long word across multiple lines
+				for len(wordRunes) > 0 {
+					endIdx := width
+					if endIdx > len(wordRunes) {
+						endIdx = len(wordRunes)
+					}
+					wrappedLines = append(wrappedLines, string(wordRunes[:endIdx]))
+					wordRunes = wordRunes[endIdx:]
+				}
+				continue
+			}
+
+			// Check if adding this word would exceed the width
+			spaceNeeded := 0
+			if currentLine.Len() > 0 {
+				spaceNeeded = 1 // for the space before the word
+			}
+
+			if currentLine.Len() > 0 && len([]rune(currentLine.String()))+spaceNeeded+len(wordRunes) > width {
+				// Start a new line
+				wrappedLines = append(wrappedLines, currentLine.String())
+				currentLine.Reset()
+			}
+
+			// Add word to current line
+			if currentLine.Len() > 0 {
+				currentLine.WriteString(" ")
+			}
+			currentLine.WriteString(word)
+		}
+
+		// Add the last line if it has content
 		if currentLine.Len() > 0 {
-			currentLine.WriteString(" ")
+			wrappedLines = append(wrappedLines, currentLine.String())
 		}
-		currentLine.WriteString(word)
 	}
 
-	// Add the last line if it has content
-	if currentLine.Len() > 0 {
-		lines = append(lines, currentLine.String())
-	}
-
-	return lines
+	return wrappedLines
 }
 
 // formatInlineConnectionStatus formats a connection status for inline display
@@ -1294,14 +1377,14 @@ func (m Model) setCurrentFieldValue(value string) error {
 		oldValue := m.editConfig.DefaultSystemPrompt
 		newValue := strings.TrimSpace(value)
 		m.editConfig.DefaultSystemPrompt = newValue
-		
+
 		// Save system prompt to file using the new method
 		if err := m.config.SetSystemPrompt(newValue); err != nil {
 			logger.Error("Failed to save system prompt to file", "error", err)
 			// Don't fail the field setting, but log the error
 			// The value will still be saved to the editConfig for UI purposes
 		}
-		
+
 		logger.Info("Default system prompt changed", "old_length", len(oldValue), "new_length", len(newValue))
 
 	case LogLevelField:
@@ -1556,21 +1639,78 @@ func (m Model) convertCursorToDisplayPosition(originalText string, cursorPos int
 	if cursorPos <= 0 {
 		return 0
 	}
-	if cursorPos >= len(originalText) {
-		return len(m.renderVisibleChars(originalText))
+
+	originalRunes := []rune(originalText)
+	if cursorPos >= len(originalRunes) {
+		return len([]rune(m.renderVisibleChars(originalText)))
 	}
 
 	// Convert the text up to cursor position
-	textBeforeCursor := originalText[:cursorPos]
+	textBeforeCursor := string(originalRunes[:cursorPos])
 	displayTextBeforeCursor := m.renderVisibleChars(textBeforeCursor)
-	return len(displayTextBeforeCursor)
+	return len([]rune(displayTextBeforeCursor))
 }
 
 // renderVisibleChars adds visual indicators for hidden characters while preserving function
 func (m Model) renderVisibleChars(text string) string {
-	result := strings.ReplaceAll(text, "\n", "↵\n")  // Show ↵ before actual newlines
-	result = strings.ReplaceAll(result, "\t", "→\t") // Show → before actual tabs
+	result := strings.ReplaceAll(text, "\t", "→\t") // Show → before actual tabs
 	return result
+}
+
+// applyMarkdownStyling adds basic markdown syntax highlighting using lipgloss colors
+func (m Model) applyMarkdownStyling(text string) string {
+	lines := strings.Split(text, "\n")
+	styledLines := make([]string, len(lines))
+
+	for i, line := range lines {
+		styled := line
+
+		// Headers
+		if strings.HasPrefix(line, "# ") {
+			styled = lipgloss.NewStyle().Foreground(lipgloss.Color("12")).Bold(true).Render(line)
+		} else if strings.HasPrefix(line, "## ") {
+			styled = lipgloss.NewStyle().Foreground(lipgloss.Color("12")).Render(line)
+		} else if strings.HasPrefix(line, "### ") {
+			styled = lipgloss.NewStyle().Foreground(lipgloss.Color("14")).Render(line)
+		} else if strings.HasPrefix(line, "#### ") {
+			styled = lipgloss.NewStyle().Foreground(lipgloss.Color("6")).Render(line)
+		} else {
+			// Bold text **text**
+			if strings.Contains(line, "**") {
+				// Simple bold highlighting - this is basic, could be improved
+				styled = strings.ReplaceAll(styled, "**", lipgloss.NewStyle().Bold(true).Render("**"))
+			}
+
+			// Italic text *text*
+			if strings.Contains(line, "*") && !strings.Contains(line, "**") {
+				styled = strings.ReplaceAll(styled, "*", lipgloss.NewStyle().Italic(true).Render("*"))
+			}
+
+			// Code blocks ```
+			if strings.HasPrefix(line, "```") {
+				styled = lipgloss.NewStyle().Foreground(lipgloss.Color("8")).Render(line)
+			}
+
+			// Inline code `code`
+			if strings.Contains(line, "`") {
+				styled = strings.ReplaceAll(styled, "`", lipgloss.NewStyle().Foreground(lipgloss.Color("8")).Render("`"))
+			}
+
+			// Lists
+			if strings.HasPrefix(line, "- ") || strings.HasPrefix(line, "* ") || strings.HasPrefix(line, "+ ") {
+				styled = lipgloss.NewStyle().Foreground(lipgloss.Color("10")).Render("• ") + line[2:]
+			}
+
+			// Numbered lists (basic detection)
+			if len(line) > 0 && line[0] >= '0' && line[0] <= '9' && strings.Contains(line, ". ") {
+				styled = lipgloss.NewStyle().Foreground(lipgloss.Color("10")).Render(line)
+			}
+		}
+
+		styledLines[i] = styled
+	}
+
+	return strings.Join(styledLines, "\n")
 }
 
 // min returns the smaller of two integers
